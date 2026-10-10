@@ -30,5 +30,10 @@ dev = [
   "pytest>=7.0.0",
 ]
 
+[tool.hatch.metadata]
+# pixelled-lib is consumed straight from GitHub until it is published on PyPI,
+# and hatchling refuses direct references in project.dependencies otherwise.
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/pixelled_play"]
