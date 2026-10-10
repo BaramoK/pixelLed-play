@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pixelled-play"
+version = "0.1.0"
+description = "Games (Breakout, Tetris) rendered entirely on iPixel Color LED matrix panels."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  { name = "BaramoK" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  "pixelled-lib @ git+https://github.com/BaramoK/pixelLed-lib.git",
+]
+
+[project.urls]
+Homepage = "https://github.com/BaramoK/pixelLed-play"
+
+[project.scripts]
+pixelled-play = "pixelled_play.cli:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pixelled_play"]
