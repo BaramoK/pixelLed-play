@@ -521,7 +521,7 @@ def run_tetris(
         panel: Optional already connected panel to use instead of connecting;
             a borrowed panel is left open (see :func:`pixelled_lib.library.panel.use_panel`).
     """
-    import tkinter as tk
+    from pixelled_lib.library.window import Window
 
     with use_panel(address, brightness, panel) as panel:
         print(
@@ -538,12 +538,9 @@ def run_tetris(
 
         interval = int(1000 / fps) if fps > 0 else 100
         repeater = KeyRepeater()
-        alive = True
 
-        root = tk.Tk()
-        root.title("pixelled_play tetris - keyboard controller")
-        label = tk.Label(root, anchor="w", justify="left", font=("Consolas", 9))
-        label.pack(padx=10, pady=10)
+        window = Window("pixelled_play tetris - keyboard controller")
+        label = window.label
 
         def status_text() -> str:
             return (
@@ -555,9 +552,7 @@ def run_tetris(
             )
 
         def quit_app() -> None:
-            nonlocal alive
-            alive = False
-            root.destroy()
+            window.close()
 
         def on_press(event) -> None:
             key = event.keysym.lower()
@@ -597,7 +592,7 @@ def run_tetris(
             repeater.clear()
 
         def tick() -> None:
-            if not alive:
+            if window.closed:
                 return
             for key in repeater.due():
                 if key in ("left", "a"):
@@ -609,21 +604,21 @@ def run_tetris(
             game.step()
             label.config(text=status_text())
             sender.submit(game.render())
-            root.after(interval, tick)
+            window.schedule(interval, tick)
 
-        root.bind("<KeyPress>", on_press)
-        root.bind("<KeyRelease>", on_release)
-        root.bind("<FocusOut>", on_focus_out)
-        root.protocol("WM_DELETE_WINDOW", quit_app)
-        root.focus_force()
+        window.bind("<KeyPress>", on_press)
+        window.bind("<KeyRelease>", on_release)
+        window.bind("<FocusOut>", on_focus_out)
+        window.on_close(quit_app)
         label.config(text=status_text())
         sender.submit(game.render())
-        root.after(interval, tick)
+        window.schedule(interval, tick)
         try:
-            root.mainloop()
+            window.mainloop()
         finally:
             sender.stop()
             sender.join(timeout=1.0)
+            window.close()
 
         print(f"Sent {sender.sent} frames.")
 

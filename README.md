@@ -28,7 +28,28 @@ the games.
 ```bash
 git clone https://github.com/BaramoK/pixelLed-play.git
 cd pixelLed-play
-pip install -e .
+python -m venv .venv
+.venv/Scripts/python -m pip install -e .    # Windows
+# .venv/bin/python -m pip install -e .      # Linux / macOS
+```
+
+`pixelled-play` is a console script, created **inside** that environment: the
+shell only finds it once the environment is active (or once its `Scripts`
+directory is on `PATH`).
+
+```bash
+.venv/Scripts/Activate.ps1                  # PowerShell (Windows)
+.venv/Scripts/activate                      # cmd (Windows)
+source .venv/bin/activate                   # Linux / macOS
+
+pixelled-play menu -a 30:E1:AF:BD:5F:D0
+```
+
+Without activating it, call the script (or the module) by path instead:
+
+```bash
+.venv/Scripts/pixelled-play.exe menu -a 30:E1:AF:BD:5F:D0
+.venv/Scripts/python -m pixelled_play menu -a 30:E1:AF:BD:5F:D0
 ```
 
 For local development against a checkout of the library, install that one first:
@@ -98,7 +119,10 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   auto-scrolling, `Esc`/Left/`b` returns from the group to the root and `q`
   quits (a launched game goes back to its group when it exits).
 - Both games open a `tkinter` window to capture the keyboard, so they need a
-  graphical display on the workstation running them.
+  graphical display on the workstation running them. That window comes from
+  `pixelled_lib.library.window` and is shared with the launcher: a whole session
+  runs on a single Tk root, which is what keeps going from the menu to a game
+  (and back) from breaking the Tk interpreter.
 - Frame rate is limited by BLE throughput and the per-frame ACK; expect a few
   frames per second up to roughly 10-15 fps depending on panel size and content.
 
