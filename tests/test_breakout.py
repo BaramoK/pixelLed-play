@@ -19,6 +19,7 @@ from pixelled_play.games.breakout import (
     HUD_OVER_COLOR,
     HUD_SCORE_COLOR,
     PADDLE_COLOR,
+    PADDLE_EDGE_COLOR,
     Breakout,
     _LEVELS_PER_LIFE,
     _LEVELS_PER_STEP,
@@ -89,10 +90,32 @@ def test_paddle_is_two_rows_tall():
     assert game.paddle_y == game.height - game.paddle_height
     assert game.paddle_bottom == game.height - 1
     img = game.render()
+    # Every pixel of both rows belongs to the bar: white, or a red-orange tip.
     for x in range(game.paddle_x, game.paddle_x + game.paddle_width):
-        assert img.getpixel((x, game.paddle_y)) == PADDLE_COLOR
-        assert img.getpixel((x, game.paddle_bottom)) == PADDLE_COLOR
+        assert img.getpixel((x, game.paddle_y)) in (PADDLE_COLOR, PADDLE_EDGE_COLOR)
+        assert img.getpixel((x, game.paddle_bottom)) in (
+            PADDLE_COLOR,
+            PADDLE_EDGE_COLOR,
+        )
     assert img.getpixel((game.paddle_x, game.paddle_y - 1)) == (0, 0, 0)
+
+
+def test_paddle_tips_are_red_orange():
+    """The two end columns of the bar are red-orange, the middle stays white."""
+    for width, height in ((16, 16), (32, 32), (64, 32)):
+        game = Breakout(width, height, seed=1)
+        assert game.paddle_width > 2  # otherwise no white middle would be left
+        img = game.render()
+        left = game.paddle_x
+        right = game.paddle_x + game.paddle_width - 1
+        center = (left + right) // 2
+        for y in (game.paddle_y, game.paddle_bottom):
+            assert img.getpixel((left, y)) == PADDLE_EDGE_COLOR
+            assert img.getpixel((right, y)) == PADDLE_EDGE_COLOR
+            assert img.getpixel((center, y)) == PADDLE_COLOR
+        # The tips are painted over the bar only: nothing bleeds outside of it.
+        assert img.getpixel((left - 1, game.paddle_y)) == (0, 0, 0)
+        assert img.getpixel((right + 1, game.paddle_y)) == (0, 0, 0)
 
 
 def test_bricks_are_two_by_two_pixels():
@@ -504,7 +527,9 @@ def test_render_draws_paddle_and_ball_on_a_black_background():
     game.ball_x, game.ball_y = 5, 20
     img = game.render()
     assert img.getpixel((5, 20)) == BALL_COLOR
-    assert img.getpixel((game.paddle_x, game.paddle_y)) == PADDLE_COLOR
+    center = game.paddle_x + game.paddle_width // 2
+    assert img.getpixel((center, game.paddle_y)) == PADDLE_COLOR
+    assert img.getpixel((game.paddle_x, game.paddle_y)) == PADDLE_EDGE_COLOR
     assert img.getpixel((31, 31)) == (0, 0, 0)
 
 
@@ -583,6 +608,8 @@ def test_breakout_frame_is_pushed_to_the_panel():
     assert extension == ".png"
     decoded = _decode(hex_string)
     assert decoded.size == (32, 16)
-    assert decoded.getpixel((game.paddle_x, game.paddle_y)) == PADDLE_COLOR
+    center = game.paddle_x + game.paddle_width // 2
+    assert decoded.getpixel((center, game.paddle_y)) == PADDLE_COLOR
+    assert decoded.getpixel((game.paddle_x, game.paddle_y)) == PADDLE_EDGE_COLOR
     assert decoded.getpixel((5, 10)) == BALL_COLOR
 

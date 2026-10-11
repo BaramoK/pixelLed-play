@@ -38,13 +38,17 @@ BRICK_PALETTE: tuple[Color, ...] = (
 
 # Bricks are 2x2 px blocks laid out edge to edge (no gap), so the wall reads as
 # a solid mass with holes - the classic breakout look. The ball stays 1 px and
-# the paddle is a 2-row bar.
+# the paddle is a 2-row bar with red-orange tips (:data:`PADDLE_EDGE_COLOR`).
 BRICK_SIZE = 2
 BRICK_PITCH = BRICK_SIZE
 
 PADDLE_HEIGHT = 2
 
 PADDLE_COLOR: Color = (255, 255, 255)
+# The paddle's two end columns are red-orange (the hue halfway between the
+# wall's red and orange rows), so the bar reads as a paddle with visible tips
+# instead of a plain white block.
+PADDLE_EDGE_COLOR: Color = (255, 64, 0)
 BALL_COLOR: Color = (255, 255, 255)
 
 HUD_SCORE_COLOR: Color = (0, 200, 0)
@@ -81,7 +85,8 @@ class Breakout:
 
     Geometry: the paddle is a 2-row bar sitting on the last row, the wall is
     built from 2x2 px bricks laid out edge to edge (:data:`BRICK_PITCH` grid)
-    and the ball is a single pixel.
+    and the ball is a single pixel. The paddle is white (:data:`PADDLE_COLOR`)
+    with a red-orange column at each end (:data:`PADDLE_EDGE_COLOR`).
 
     Levels are endless: clearing a wall calls :meth:`advance_level`, which
     builds a taller, denser and slightly faster wall, keeps score and lives, and
@@ -464,6 +469,13 @@ class Breakout:
             ],
             fill=PADDLE_COLOR,
         )
+        # Red-orange tips: the first and last column of the bar, over its whole
+        # height (both rows), painted over the white bar drawn above.
+        for x in (self.paddle_x, self.paddle_x + self.paddle_width - 1):
+            draw.rectangle(
+                [x, self.paddle_y, x, self.paddle_bottom],
+                fill=PADDLE_EDGE_COLOR,
+            )
         if 0 <= self.ball_x < self.width and 0 <= self.ball_y < self.height:
             draw.point((self.ball_x, self.ball_y), fill=BALL_COLOR)
         if self.hud_rows:
