@@ -99,7 +99,7 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   filled, lower it (e.g. `--density 0.45`) for a lighter wall. Levels are
   endless: clearing every brick builds a denser wall (density +0.08 per level,
   up to a full wall) and speeds the ball up (one extra pixel per tick every
-  three levels, capped at 4), and rewards the player with **one extra life**;
+  five levels, capped at 3), and rewards the player with **one extra life**;
   the score keeps accumulating, so only running out of lives ends the game.
   `--level` starts at a higher level.
 - `pixelled-play tetris` also draws everything on the panel; its (minimal)

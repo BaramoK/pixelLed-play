@@ -19,6 +19,7 @@ from pixelled_play.games.breakout import (
     HUD_SCORE_COLOR,
     PADDLE_COLOR,
     Breakout,
+    _LEVELS_PER_SPEED_UP,
     _LIVES_PER_LEVEL,
     _MAX_SPEED,
 )
@@ -398,9 +399,14 @@ def test_density_rises_with_the_level_and_is_capped():
 
 
 def test_speed_rises_with_the_level_and_is_capped():
-    low = Breakout(32, 32, seed=1, level=1)
-    high = Breakout(32, 32, seed=1, level=7)
-    assert high.level_speed > low.level_speed
+    base = Breakout(32, 32, seed=1, level=1)
+    assert base.level_speed == 1
+    # The ball keeps the same speed until the next speed-up level...
+    same = Breakout(32, 32, seed=1, level=_LEVELS_PER_SPEED_UP)
+    assert same.level_speed == base.level_speed
+    # ...then gains exactly one pixel per tick.
+    faster = Breakout(32, 32, seed=1, level=_LEVELS_PER_SPEED_UP + 1)
+    assert faster.level_speed == base.level_speed + 1
     assert Breakout(32, 32, seed=1, level=1000).level_speed == _MAX_SPEED
 
 

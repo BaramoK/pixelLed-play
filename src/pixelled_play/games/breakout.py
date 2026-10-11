@@ -58,8 +58,8 @@ _DRY_BOUNCE_LIMIT = 5
 # a slightly faster ball) and rewards the player with extra lives, so a good run
 # lasts. There is no "win" state - only running out of lives ends the game.
 _LEVEL_DENSITY_STEP = 0.08  # density added per level (capped at 1.0)
-_LEVELS_PER_SPEED_UP = 3  # one extra pixel per tick every this many levels
-_MAX_SPEED = 4  # hard cap on the ball speed, whatever the level
+_LEVELS_PER_SPEED_UP = 5  # one extra pixel per tick every this many levels
+_MAX_SPEED = 3  # hard cap on the ball speed, whatever the level
 _LIVES_PER_LEVEL = 1  # extra lives awarded each time a wall is cleared
 
 
