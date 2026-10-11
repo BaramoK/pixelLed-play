@@ -111,15 +111,15 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   a higher level and grants the extra rows and lives it would have earned on the
   way (`--lives` is the count at level 1). Destroyed bricks can also drop a
   **pickup** (`--bonus`, 15 % of the time by default): half a brick (2x1 px) falls
-  at the ball's speed — one pixel per step, exactly like the ball, so even the
-  3 px/tick cap cannot make it tunnel through the bar — and, caught by the
-  paddle, either adds a **life** (green), sends a **second ball** (blue, up to 4
-  in play; a life is only spent when the *last* ball drops), **widens** the bar by
-  one pixel per side (white, up to 12 px) or — the red malus — **narrows** it by
-  one pixel per side (down to 8 px). Those bounds never shrink a bar the panel
-  already makes wider (a 64 px panel gets a 16 px bar, which only a malus can
-  narrow). A missed pickup simply falls off the field, and `--bonus 0` turns
-  pickups off.
+  at **half the ball's speed** — a bit slower, so there is time to fetch it, and
+  moved one pixel at a time, so even the 3 px/tick cap cannot make it tunnel
+  through the bar — and, caught by the paddle, either adds a **life** (green),
+  sends a **second ball** (blue, up to 4 in play; a life is only spent when the
+  *last* ball drops), **widens** the bar by one pixel per side (white, up to
+  12 px) or — the red malus — **narrows** it by one pixel per side (down to
+  8 px). Those bounds never shrink a bar the panel already makes wider (a 64 px
+  panel gets a 16 px bar, which only a malus can narrow). A missed pickup simply
+  falls off the field, and `--bonus 0` turns pickups off.
 - `pixelled-play tetris` also draws everything on the panel; its (minimal)
   window only captures the keyboard: arrows/`A`-`D` move the piece, up/`W`/`X`
   rotate clockwise, `Z` rotates counter-clockwise, down/`S` soft drops, space

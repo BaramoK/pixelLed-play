@@ -13,9 +13,9 @@ awards an extra life every five levels, so the game only ends when the player
 runs out of lives.
 
 Destroyed bricks can also drop a bonus: half a brick (2 px wide, 1 px tall)
-falls at the ball's speed and, caught by the paddle, either grants an extra
-life, sends a second ball, widens the bar by one pixel per side - or, for the
-red malus, narrows it.
+falls at half the ball's speed - slower, so the player has time to fetch it -
+and, caught by the paddle, either grants an extra life, sends a second ball,
+widens the bar by one pixel per side or, for the red malus, narrows it.
 """
 
 from __future__ import annotations
@@ -64,8 +64,9 @@ PADDLE_MIN_WIDTH = 8
 PADDLE_MAX_WIDTH = 12
 
 # Pickups: a destroyed brick can drop half a brick (:data:`BONUS_WIDTH` x
-# :data:`BONUS_HEIGHT` px) that falls at the ball's speed. Catching it applies
-# its effect; the red one is a malus, so it is worth dodging.
+# :data:`BONUS_HEIGHT` px) that falls at half the ball's speed
+# (:data:`_BONUS_SPEED_FACTOR`). Catching it applies its effect; the red one is
+# a malus, so it is worth dodging.
 BONUS_WIDTH = BRICK_SIZE
 BONUS_HEIGHT = BRICK_SIZE // 2
 BONUS_LIFE = "life"
@@ -100,6 +101,7 @@ _MAX_SPEED = 3.0  # hard cap on the ball speed, whatever the level
 _LEVELS_PER_LIFE = 5  # one extra life every this many levels (5, 10, 15, ...)
 _START_ROWS = 3  # brick rows at level 1 (one more every _LEVELS_PER_STEP levels)
 _BONUS_DROP_CHANCE = 0.15  # default probability for a brick to drop a pickup
+_BONUS_SPEED_FACTOR = 0.5  # pickups fall at half the ball speed (px/tick)
 _MAX_BALLS = 4  # hard cap on the number of balls in play
 
 
@@ -129,9 +131,10 @@ class _Ball:
 class _Bonus:
     """A falling pickup: half a brick (:data:`BONUS_WIDTH` x :data:`BONUS_HEIGHT`).
 
-    It is one row of the brick grid, so it drops through the field one pixel at
-    a time (:meth:`Breakout._fall_bonuses`) until the paddle catches it or it
-    falls off the bottom.
+    It falls at half the ball's speed (:data:`_BONUS_SPEED_FACTOR`) and, being
+    one row of the brick grid, drops one pixel at a time
+    (:meth:`Breakout._fall_bonuses`) until the paddle catches it or it falls off
+    the bottom.
     """
 
     __slots__ = ("x", "y", "kind")
@@ -159,7 +162,7 @@ class Breakout:
     "win" state - the game only ends when the player runs out of lives.
 
     Destroyed bricks can drop a pickup (one brick in ``bonus_chance``): half a
-    brick that falls at the ball's speed and, caught by the paddle, either
+    brick that falls at half the ball's speed and, caught by the paddle, either
     grants an extra life, sends a second ball, widens the bar by one pixel per
     side or - the red malus - narrows it.
 
@@ -374,6 +377,7 @@ class Breakout:
         self.paddle_vx = 0
         self._dry_bounces = 0
         self._move_carry = 0.0
+        self._bonus_carry = 0.0
         self.balls = [self._ball_on_paddle()]
         self.bonuses: list[_Bonus] = []
         self._build_wall()
@@ -414,14 +418,21 @@ class Breakout:
             return
         # The speed is fractional (1.1, 1.21, ... px/tick), so accumulate the
         # distance wanted for this tick and move a whole number of pixels,
-        # carrying the rest over to the next tick: the balls - and the falling
-        # pickups, which travel at the same speed - then average level_speed
-        # px/tick without any sub-pixel geometry.
+        # carrying the rest over to the next tick: the ball then averages
+        # level_speed px/tick without any sub-pixel geometry.
         self._move_carry += self.level_speed
         steps = int(self._move_carry)
         self._move_carry -= steps
-        for _ in range(steps):
+        # Pickups fall at half that speed - slower, so the player has time to
+        # fetch them - with an accumulator of their own. They are stepped first,
+        # so one caught on the very tick the ball is lost is still applied
+        # before the life is spent.
+        self._bonus_carry += self.level_speed * _BONUS_SPEED_FACTOR
+        bonus_steps = int(self._bonus_carry)
+        self._bonus_carry -= bonus_steps
+        for _ in range(bonus_steps):
             self._fall_bonuses()
+        for _ in range(steps):
             self._move_balls()
             if self.state != self.RUNNING:
                 break
@@ -533,11 +544,12 @@ class Breakout:
     def _fall_bonuses(self) -> None:
         """Drop every pickup by one pixel, catching or discarding it.
 
-        Pickups travel at the ball's speed - they are moved from the same
-        :meth:`step` loop, one pixel at a time - so even a fast ball cannot make
-        one tunnel through the paddle. A pickup reaching the paddle row inside
-        the bar is caught (:meth:`_apply_bonus`); one falling past the bottom row
-        is simply lost.
+        Pickups fall at half the ball's speed (:data:`_BONUS_SPEED_FACTOR`), one
+        pixel at a time (:meth:`step`), so even the 3 px/tick cap cannot make one
+        tunnel through the paddle: a pickup at 1.5 px/tick still lands on the bar
+        row, and the catch test is a threshold. A pickup reaching the paddle row
+        inside the bar is caught (:meth:`_apply_bonus`); one falling past the
+        bottom row is simply lost.
         """
         kept: list[_Bonus] = []
         for bonus in self.bonuses:
@@ -611,6 +623,7 @@ class Breakout:
         self.lives -= 1
         self.balls = [self._ball_on_paddle()]
         self._move_carry = 0.0
+        self._bonus_carry = 0.0
         self.bonuses = []
         if self.lives <= 0:
             self.lives = 0
@@ -636,6 +649,7 @@ class Breakout:
         self.paddle_vx = 0
         self._dry_bounces = 0
         self._move_carry = 0.0
+        self._bonus_carry = 0.0
         self.balls = [self._ball_on_paddle()]
         self.bonuses = []
         self.state = self.READY
