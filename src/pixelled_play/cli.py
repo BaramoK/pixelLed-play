@@ -56,9 +56,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_breakout.add_argument(
         "--speed",
-        type=int,
-        default=1,
-        help="Ball speed in pixels per tick (default 1).",
+        type=float,
+        default=1.0,
+        help="Ball speed in pixels per tick at level 1 (default 1); x1.1 every "
+        "five levels.",
     )
     p_breakout.add_argument(
         "--lives",
@@ -69,8 +70,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_breakout.add_argument(
         "--density",
         type=float,
-        default=0.6,
-        help="Probability for a wall cell to hold a brick (default 0.6).",
+        default=0.2,
+        help="Probability for a wall cell to hold a brick at level 1 (default "
+        "0.2); +0.1 every five levels.",
     )
     p_breakout.add_argument(
         "--seed", type=int, default=None, help="RNG seed for a reproducible wall."

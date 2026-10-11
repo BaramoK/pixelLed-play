@@ -96,13 +96,14 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   level bar, then the remaining lives on the right); disable it with `--no-hud`.
   Bricks are 2x2 px blocks packed edge to edge (no gap), so the wall looks like
   the classic solid mass: `--density` is the probability for a 2x2 cell to be
-  filled, lower it (e.g. `--density 0.45`) for a lighter wall. Levels are
-  endless: clearing every brick builds a denser wall (density +0.08 per level,
-  up to a full wall) and speeds the ball up (one extra pixel per tick every
-  five levels, capped at 3), and rewards the player with **one extra life
-  every five levels**; the score keeps accumulating, so only running out of
-  lives ends the game. `--level` starts at a higher level and grants the extra
-  lives it would have earned on the way (`--lives` is the count at level 1).
+  filled **at level 1** (default 0.2); raise it (e.g. `--density 0.4`) for a
+  denser wall. Levels are endless: clearing every brick builds a denser wall
+  (density +0.1 every five levels, up to a full wall) and speeds the ball up
+  (x1.1, i.e. +10 %, every five levels, capped at 3 px/tick), and rewards the
+  player with **one extra life every five levels**; the score keeps
+  accumulating, so only running out of lives ends the game. `--level` starts at
+  a higher level and grants the extra lives it would have earned on the way
+  (`--lives` is the count at level 1).
 - `pixelled-play tetris` also draws everything on the panel; its (minimal)
   window only captures the keyboard: arrows/`A`-`D` move the piece, up/`W`/`X`
   rotate clockwise, `Z` rotates counter-clockwise, down/`S` soft drops, space

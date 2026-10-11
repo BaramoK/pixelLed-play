@@ -7,9 +7,9 @@ it can be unit tested without hardware - exactly like
 everything (field + HUD) is displayed on the LED matrix, and a *minimal*
 tkinter window is used only to capture keyboard input.
 
-Levels are endless: clearing a wall builds a harder one and awards an extra
-life every five levels, so the game only ends when the player runs out of
-lives.
+Levels are endless: clearing a wall builds a harder one (denser, and 10 %
+faster every five levels) and awards an extra life every five levels, so the
+game only ends when the player runs out of lives.
 """
 
 from __future__ import annotations
@@ -56,12 +56,13 @@ HUD_OVER_COLOR: Color = (255, 0, 0)
 _DRY_BOUNCE_LIMIT = 5
 
 # Endless levels: each cleared wall starts a new, harder one (a denser wall and
-# a slightly faster ball) and rewards the player with an extra life every
+# a faster ball) and rewards the player with an extra life every
 # _LEVELS_PER_LIFE levels, so a good run lasts. There is no "win" state - only
 # running out of lives ends the game.
-_LEVEL_DENSITY_STEP = 0.08  # density added per level (capped at 1.0)
-_LEVELS_PER_SPEED_UP = 5  # one extra pixel per tick every this many levels
-_MAX_SPEED = 3  # hard cap on the ball speed, whatever the level
+_DENSITY_STEP = 0.1  # wall density added every _LEVELS_PER_STEP levels
+_SPEED_GROWTH = 1.1  # ball speed factor applied every _LEVELS_PER_STEP levels
+_LEVELS_PER_STEP = 5  # density and speed both step up every this many levels
+_MAX_SPEED = 3.0  # hard cap on the ball speed, whatever the level
 _LEVELS_PER_LIFE = 5  # one extra life every this many levels (5, 10, 15, ...)
 
 
@@ -95,9 +96,14 @@ class Breakout:
     seed:
         Optional RNG seed; when given the random wall is reproducible.
     density:
-        Probability for a wall cell to contain a brick (0..1), at level 1.
+        Probability for a wall cell to contain a brick (0..1) at level 1
+        (``0.2`` by default); it gains :data:`_DENSITY_STEP` every
+        :data:`_LEVELS_PER_STEP` levels, up to a full wall.
     speed:
-        Pixels travelled per tick (``>= 1``), at level 1.
+        Pixels travelled per tick at level 1 (``>= 1``, ``1`` by default); it
+        grows by 10 % every :data:`_LEVELS_PER_STEP` levels, capped at
+        :data:`_MAX_SPEED`. Fractional values are averaged over ticks (see
+        :meth:`step`).
     level:
         Starting level (default 1); higher levels start with a denser wall, a
         faster ball and the extra lives earned up to that level.
@@ -116,8 +122,8 @@ class Breakout:
         height: int,
         lives: int = 3,
         seed: Optional[int] = None,
-        density: float = 0.6,
-        speed: int = 1,
+        density: float = 0.2,
+        speed: float = 1.0,
         level: int = 1,
         hud: bool = True,
     ):
@@ -125,7 +131,7 @@ class Breakout:
         self.height = int(height)
         self.initial_lives = max(1, int(lives))
         self.density = min(1.0, max(0.0, float(density)))
-        self.speed = max(1, int(speed))
+        self.speed = max(1.0, float(speed))
         self.initial_level = max(1, int(level))
         self.hud = bool(hud)
         self.reset(seed=seed)
@@ -158,15 +164,25 @@ class Breakout:
 
     @property
     def level_density(self) -> float:
-        """Wall density at the current level (rises with the level, capped at 1)."""
-        return min(1.0, self.density + (self.level - 1) * _LEVEL_DENSITY_STEP)
+        """Wall density at the current level (rises with the level, capped at 1).
+
+        It starts at :attr:`density` on level 1 and gains :data:`_DENSITY_STEP`
+        every :data:`_LEVELS_PER_STEP` levels, until the wall is full.
+        """
+        steps = (self.level - 1) // _LEVELS_PER_STEP
+        return min(1.0, self.density + _DENSITY_STEP * steps)
 
     @property
-    def level_speed(self) -> int:
-        """Ball speed in pixels per tick at the current level (capped)."""
-        return min(
-            _MAX_SPEED, self.speed + (self.level - 1) // _LEVELS_PER_SPEED_UP
-        )
+    def level_speed(self) -> float:
+        """Ball speed in pixels per tick at the current level (capped).
+
+        It starts at :attr:`speed` on level 1 and grows by 10 % every
+        :data:`_LEVELS_PER_STEP` levels, up to :data:`_MAX_SPEED`. The value is
+        fractional on purpose - :meth:`step` averages it over ticks, so 1.1
+        px/tick means 2 px on one tick out of ten.
+        """
+        steps = (self.level - 1) // _LEVELS_PER_STEP
+        return min(_MAX_SPEED, self.speed * _SPEED_GROWTH**steps)
 
     def _brick_at(self, x: int, y: int) -> Optional[tuple[int, int]]:
         """Return the origin of the brick covering ``(x, y)``, or ``None``.
@@ -194,6 +210,7 @@ class Breakout:
         self.paddle_x = (self.width - self.paddle_width) // 2
         self.paddle_vx = 0
         self._dry_bounces = 0
+        self._move_carry = 0.0
         self.ball_x = self.paddle_x + self.paddle_width // 2
         self.ball_y = self.paddle_y - 1
         self.vx = 0
@@ -234,7 +251,14 @@ class Breakout:
             self.ball_x = self.paddle_x + self.paddle_width // 2
             self.ball_y = self.paddle_y - 1
             return
-        for _ in range(self.level_speed):
+        # The speed is fractional (1.1, 1.21, ... px/tick), so accumulate the
+        # distance wanted for this tick and move a whole number of pixels,
+        # carrying the rest over to the next tick: the ball then averages
+        # level_speed px/tick without any sub-pixel geometry.
+        self._move_carry += self.level_speed
+        steps = int(self._move_carry)
+        self._move_carry -= steps
+        for _ in range(steps):
             self._unit_step()
             if self.state != self.RUNNING:
                 break
@@ -333,6 +357,7 @@ class Breakout:
         self.lives -= 1
         self.vx = 0
         self.vy = 0
+        self._move_carry = 0.0
         self.ball_x = self.paddle_x + self.paddle_width // 2
         self.ball_y = self.paddle_y - 1
         if self.lives <= 0:
@@ -357,6 +382,7 @@ class Breakout:
         self.paddle_x = (self.width - self.paddle_width) // 2
         self.paddle_vx = 0
         self._dry_bounces = 0
+        self._move_carry = 0.0
         self.vx = 0
         self.vy = 0
         self.ball_x = self.paddle_x + self.paddle_width // 2
@@ -457,9 +483,9 @@ def run_breakout(
     brightness: Optional[int] = None,
     fps: float = 15.0,
     seed: Optional[int] = None,
-    density: float = 0.6,
+    density: float = 0.2,
     lives: int = 3,
-    speed: int = 1,
+    speed: float = 1.0,
     level: int = 1,
     hud: bool = True,
     panel: Optional[Panel] = None,
@@ -479,10 +505,12 @@ def run_breakout(
         brightness: Optional brightness (0-100) applied on connect.
         fps: Target game/send rate (frames per second).
         seed: Optional RNG seed for a reproducible wall.
-        density: Probability for a wall cell to contain a brick (0..1) at level 1.
+        density: Probability for a wall cell to contain a brick (0..1) at level 1
+            (0.2 by default); it gains 0.1 every five levels, up to a full wall.
         lives: Number of balls available at level 1 (higher starting levels add
             the extra lives they would have earned).
-        speed: Pixels travelled per tick (``>= 1``) at level 1.
+        speed: Pixels travelled per tick at level 1 (1 by default); it grows by
+            10 % every five levels, capped at 3.
         level: Starting level (default 1); it also grants the extra lives earned
             up to that level.
         hud: Draw the on-panel HUD (score bar + level + lives).

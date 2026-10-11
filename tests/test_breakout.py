@@ -7,6 +7,7 @@ the whole "game -> frame -> panel" chain can be checked without hardware.
 
 import io
 
+import pytest
 from PIL import Image
 
 from pixelled_play.games.breakout import (
@@ -20,7 +21,7 @@ from pixelled_play.games.breakout import (
     PADDLE_COLOR,
     Breakout,
     _LEVELS_PER_LIFE,
-    _LEVELS_PER_SPEED_UP,
+    _LEVELS_PER_STEP,
     _MAX_SPEED,
 )
 from pixelled_lib.library.panel import Panel
@@ -401,23 +402,51 @@ def test_starting_level_comes_with_the_lives_it_would_have_earned():
         assert game.lives == 3 + level // _LEVELS_PER_LIFE
 
 
-def test_density_rises_with_the_level_and_is_capped():
-    low = Breakout(32, 32, seed=1, level=1)
-    high = Breakout(32, 32, seed=1, level=5)
-    assert high.level_density > low.level_density
-    assert Breakout(32, 32, seed=1, density=1.0, level=10).level_density == 1.0
+def test_density_starts_at_a_fifth_and_gains_a_tenth_every_five_levels():
+    def density(level, **kwargs):
+        return Breakout(32, 32, seed=1, level=level, **kwargs).level_density
+
+    assert density(1) == pytest.approx(0.2)  # the base density is the level 1 one
+    assert density(_LEVELS_PER_STEP) == pytest.approx(0.2)  # nothing before level 6
+    assert density(_LEVELS_PER_STEP + 1) == pytest.approx(0.3)
+    assert density(2 * _LEVELS_PER_STEP + 1) == pytest.approx(0.4)
+    assert density(41) == 1.0  # a full wall, capped
+    assert density(1000) == 1.0
+    assert density(_LEVELS_PER_STEP + 1, density=0.5) == pytest.approx(0.6)
 
 
-def test_speed_rises_with_the_level_and_is_capped():
-    base = Breakout(32, 32, seed=1, level=1)
-    assert base.level_speed == 1
-    # The ball keeps the same speed until the next speed-up level...
-    same = Breakout(32, 32, seed=1, level=_LEVELS_PER_SPEED_UP)
-    assert same.level_speed == base.level_speed
-    # ...then gains exactly one pixel per tick.
-    faster = Breakout(32, 32, seed=1, level=_LEVELS_PER_SPEED_UP + 1)
-    assert faster.level_speed == base.level_speed + 1
-    assert Breakout(32, 32, seed=1, level=1000).level_speed == _MAX_SPEED
+def test_speed_grows_by_a_tenth_every_five_levels_and_is_capped():
+    def speed(level, **kwargs):
+        return Breakout(32, 32, seed=1, level=level, **kwargs).level_speed
+
+    assert speed(1) == 1.0
+    assert speed(_LEVELS_PER_STEP) == 1.0  # nothing before level 6
+    assert speed(_LEVELS_PER_STEP + 1) == pytest.approx(1.1)
+    assert speed(2 * _LEVELS_PER_STEP + 1) == pytest.approx(1.21)  # compounding
+    # 11 steps of +10 % still fit under the cap; the 12th does not.
+    assert speed(56) == pytest.approx(1.1**11)
+    assert 1.1**12 > _MAX_SPEED
+    assert speed(61) == _MAX_SPEED  # the cap kicks in around level 61
+    assert speed(1000) == _MAX_SPEED
+    assert speed(_LEVELS_PER_STEP + 1, speed=2.0) == pytest.approx(2.2)
+
+
+def test_fractional_speed_is_averaged_over_ticks():
+    """A 1.1 px/tick ball covers 11 px in 10 ticks (2 px on the tenth)."""
+    game = Breakout(32, 32, seed=1, level=_LEVELS_PER_STEP + 1)  # 1.1 px/tick
+    game.clear_bricks()
+    # A single far-away brick keeps the level from ending (an empty wall would
+    # advance to the next level and rebuild).
+    game.bricks.add((0, 0))
+    game.brick_colors[(0, 0)] = (255, 0, 0)
+    game.launch()
+    game.ball_x, game.ball_y = 8, 25
+    game.vx, game.vy = 0, -1  # straight up: no side wall bounce to confuse us
+    for _ in range(10):
+        game.step()
+    assert game.ball_y == 25 - 11
+    assert game.level == _LEVELS_PER_STEP + 1  # no level-up mid-measurement
+    assert game.state == Breakout.RUNNING
 
 
 def test_reset_returns_to_the_starting_level():
