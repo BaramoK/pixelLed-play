@@ -61,7 +61,7 @@ BALL_COLOR: Color = (255, 255, 255)
 # one pixel per side (two in total), within these limits. They never override the
 # width the panel implies, so a bar already wider than the ceiling keeps its
 # width (only a malus narrows it) - see :attr:`Breakout.paddle_width`.
-PADDLE_MIN_WIDTH = 8
+PADDLE_MIN_WIDTH = 6
 PADDLE_MAX_WIDTH = 12
 
 # Pickups: a destroyed brick can drop half a brick (:data:`BONUS_WIDTH` x

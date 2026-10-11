@@ -121,7 +121,7 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   sends a **second ball** (blue, up to 4 in play; a life is only spent when the
   *last* ball drops), **widens** the bar by one pixel per side (white, up to
   12 px) or — the red malus — **narrows** it by one pixel per side (down to
-  8 px). Those bounds never shrink a bar the panel already makes wider (a 64 px
+  6 px). Those bounds never shrink a bar the panel already makes wider (a 64 px
   panel gets a 16 px bar, which only a malus can narrow). A missed pickup simply
   falls off the field, and `--bonus 0` turns pickups off.
 - `pixelled-play tetris` also draws everything on the panel; its (minimal)

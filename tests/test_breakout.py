@@ -824,7 +824,7 @@ def test_a_missed_pickup_is_discarded_at_the_bottom():
     for _ in range(8):  # 4 px at half the ball's speed
         game.step()
     assert game.bonuses == []
-    assert game.paddle_width == PADDLE_MIN_WIDTH  # the malus never applied
+    assert game.paddle_width == game.base_paddle_width  # the malus never applied
 
 
 def test_a_pickup_falls_at_half_the_level_speed_over_a_long_fall():
@@ -936,14 +936,14 @@ def test_a_grow_pickup_keeps_the_paddle_inside_the_field():
 
 def test_the_paddle_width_stops_at_its_bounds():
     game = Breakout(32, 32, seed=1, bonus_chance=0.0)
-    assert game.paddle_width == PADDLE_MIN_WIDTH == 8
+    assert game.paddle_width == game.base_paddle_width == 8  # 32 // 4
     game.launch()
     for kind, expected in (
         (BONUS_GROW, 10),
         (BONUS_GROW, PADDLE_MAX_WIDTH),
         (BONUS_GROW, PADDLE_MAX_WIDTH),  # capped
         (BONUS_SHRINK, PADDLE_MAX_WIDTH - 2),
-        (BONUS_SHRINK, PADDLE_MIN_WIDTH),
+        (BONUS_SHRINK, 8),  # back to the width the panel implies
         (BONUS_SHRINK, PADDLE_MIN_WIDTH),  # floored
     ):
         _catch_pickup(game, kind)
@@ -969,15 +969,15 @@ def test_the_paddle_width_survives_a_level_change_but_not_a_replay():
     game = Breakout(32, 32, seed=1, bonus_chance=0.0)
     game.launch()
     _catch_pickup(game, BONUS_GROW)
-    assert game.paddle_width == PADDLE_MIN_WIDTH + 2
+    assert game.paddle_width == game.base_paddle_width + 2
     game.clear_bricks()
     game.ball_x, game.ball_y = 16, 20
     game.vx, game.vy = 1, 1
     game.step()
     assert game.level == 2
-    assert game.paddle_width == PADDLE_MIN_WIDTH + 2  # kept across levels
+    assert game.paddle_width == game.base_paddle_width + 2  # kept across levels
     game.reset(seed=1)
-    assert game.paddle_width == PADDLE_MIN_WIDTH  # a replay starts from scratch
+    assert game.paddle_width == game.base_paddle_width  # a replay starts from scratch
 
 
 def test_pickups_are_cleared_when_a_life_is_lost():
