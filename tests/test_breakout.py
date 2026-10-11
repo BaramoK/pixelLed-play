@@ -19,8 +19,8 @@ from pixelled_play.games.breakout import (
     HUD_SCORE_COLOR,
     PADDLE_COLOR,
     Breakout,
+    _LEVELS_PER_LIFE,
     _LEVELS_PER_SPEED_UP,
-    _LIVES_PER_LEVEL,
     _MAX_SPEED,
 )
 from pixelled_lib.library.panel import Panel
@@ -319,7 +319,7 @@ def test_tracking_paddle_clears_the_wall_and_levels_up():
     assert game.level == 2
     assert game.state == Breakout.READY
     assert game.score == first_wall
-    assert game.lives == 3 + _LIVES_PER_LEVEL
+    assert game.lives == 3  # no extra life before the first 5 levels are cleared
 
 
 def test_lost_ball_decrements_lives_and_resets():
@@ -359,7 +359,7 @@ def test_clearing_the_wall_advances_to_the_next_level():
     assert game.level_score == 0
 
 
-def test_advance_level_awards_a_life_and_keeps_the_score():
+def test_advance_level_keeps_the_score_and_does_not_award_a_life_yet():
     game = Breakout(32, 32, seed=1, lives=3)
     game.score = 7
     game.launch()
@@ -368,21 +368,23 @@ def test_advance_level_awards_a_life_and_keeps_the_score():
     game.vx, game.vy = 1, 1
     game.step()
     assert game.level == 2
-    assert game.lives == 3 + _LIVES_PER_LEVEL
+    assert game.lives == 3  # the first extra life only comes at level 5
     assert game.score == 7  # the running total is untouched
     assert game.level_score == 0  # but the per-level bar resets
 
 
-def test_every_cleared_level_awards_a_life():
+def test_a_life_is_awarded_every_five_cleared_levels():
     game = Breakout(32, 32, seed=1, lives=3)
-    for expected_level in (2, 3):
+    milestones = {_LEVELS_PER_LIFE, 2 * _LEVELS_PER_LIFE}
+    for level in range(2, 2 * _LEVELS_PER_LIFE + 2):
         game.launch()
         game.clear_bricks()
         game.ball_x, game.ball_y = 16, 20
         game.vx, game.vy = 1, 1
         game.step()
-        assert game.level == expected_level
-    assert game.lives == 3 + 2 * _LIVES_PER_LEVEL
+        assert game.level == level
+        # exactly one extra life at each milestone, none in between
+        assert game.lives == 3 + sum(1 for m in milestones if m <= level)
 
 
 def test_starting_level_can_be_chosen():

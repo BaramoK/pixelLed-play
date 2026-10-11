@@ -8,7 +8,8 @@ everything (field + HUD) is displayed on the LED matrix, and a *minimal*
 tkinter window is used only to capture keyboard input.
 
 Levels are endless: clearing a wall builds a harder one and awards an extra
-life, so the game only ends when the player runs out of lives.
+life every five levels, so the game only ends when the player runs out of
+lives.
 """
 
 from __future__ import annotations
@@ -55,12 +56,13 @@ HUD_OVER_COLOR: Color = (255, 0, 0)
 _DRY_BOUNCE_LIMIT = 5
 
 # Endless levels: each cleared wall starts a new, harder one (a denser wall and
-# a slightly faster ball) and rewards the player with extra lives, so a good run
-# lasts. There is no "win" state - only running out of lives ends the game.
+# a slightly faster ball) and rewards the player with an extra life every
+# _LEVELS_PER_LIFE levels, so a good run lasts. There is no "win" state - only
+# running out of lives ends the game.
 _LEVEL_DENSITY_STEP = 0.08  # density added per level (capped at 1.0)
 _LEVELS_PER_SPEED_UP = 5  # one extra pixel per tick every this many levels
 _MAX_SPEED = 3  # hard cap on the ball speed, whatever the level
-_LIVES_PER_LEVEL = 1  # extra lives awarded each time a wall is cleared
+_LEVELS_PER_LIFE = 5  # one extra life every this many levels (5, 10, 15, ...)
 
 
 def _clamp(value: int, low: int, high: int) -> int:
@@ -79,9 +81,9 @@ class Breakout:
     and the ball is a single pixel.
 
     Levels are endless: clearing a wall calls :meth:`advance_level`, which
-    builds a denser and slightly faster wall, rewards the player with
-    :data:`_LIVES_PER_LEVEL` extra lives and keeps score and lives. There is no
-    "win" state - the game only ends when the player runs out of lives.
+    builds a denser and slightly faster wall, keeps score and lives, and awards
+    an extra life every :data:`_LEVELS_PER_LIFE` levels. There is no "win"
+    state - the game only ends when the player runs out of lives.
 
     Parameters
     ----------
@@ -339,14 +341,16 @@ class Breakout:
     def advance_level(self) -> None:
         """Start the next (harder) level once the current wall is cleared.
 
-        Score and lives carry over, and the player is rewarded with
-        :data:`_LIVES_PER_LEVEL` extra lives; only the ball is put back on the
-        (re-centred) paddle, ready to be launched again. Levels are endless, so
-        this never ends the game - running out of lives does.
+        Score and lives carry over, and reaching a multiple of
+        :data:`_LEVELS_PER_LIFE` rewards the player with an extra life; only the
+        ball is put back on the (re-centred) paddle, ready to be launched again.
+        Levels are endless, so this never ends the game - running out of lives
+        does.
         """
         self.level += 1
         self.level_score = 0
-        self.lives += _LIVES_PER_LEVEL
+        if self.level % _LEVELS_PER_LIFE == 0:
+            self.lives += 1
         self.paddle_x = (self.width - self.paddle_width) // 2
         self.paddle_vx = 0
         self._dry_bounces = 0
@@ -464,8 +468,8 @@ def run_breakout(
     continuously moving paddle.
 
     Levels are endless: clearing a wall builds a denser and faster one and
-    rewards the player with an extra life, so the run only ends when the player
-    runs out of lives.
+    rewards the player with an extra life every five levels, so the run only
+    ends when the player runs out of lives.
 
     Args:
         address: Bluetooth MAC address of the panel.
