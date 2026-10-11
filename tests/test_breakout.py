@@ -12,6 +12,14 @@ from PIL import Image
 
 from pixelled_play.games.breakout import (
     BALL_COLOR,
+    BONUS_BALL,
+    BONUS_COLORS,
+    BONUS_GROW,
+    BONUS_HEIGHT,
+    BONUS_KINDS,
+    BONUS_LIFE,
+    BONUS_SHRINK,
+    BONUS_WIDTH,
     BRICK_PITCH,
     BRICK_SIZE,
     HUD_LEVEL_COLOR,
@@ -20,9 +28,13 @@ from pixelled_play.games.breakout import (
     HUD_SCORE_COLOR,
     PADDLE_COLOR,
     PADDLE_EDGE_COLOR,
+    PADDLE_MAX_WIDTH,
+    PADDLE_MIN_WIDTH,
     Breakout,
+    _Bonus,
     _LEVELS_PER_LIFE,
     _LEVELS_PER_STEP,
+    _MAX_BALLS,
     _MAX_SPEED,
     _START_ROWS,
 )
@@ -51,6 +63,28 @@ def _make_panel(width=32, height=32):
 
 def _decode(hex_string):
     return Image.open(io.BytesIO(bytes.fromhex(hex_string))).convert("RGB")
+
+
+def _lowest_free_brick(game):
+    """Return the origin of a brick with nothing directly below it."""
+    candidates = [
+        b for b in game.bricks if (b[0], b[1] + BRICK_PITCH) not in game.bricks
+    ]
+    return max(candidates or list(game.bricks), key=lambda b: b[1])
+
+
+def _hit_brick_from_below(game, bx, by):
+    """Destroy the brick at ``(bx, by)`` with the ball coming straight up."""
+    game.ball_x, game.ball_y = bx, by + BRICK_SIZE
+    game.vx, game.vy = 0, -1
+    game.step()
+
+
+def _pickup_above_the_paddle(game, kind):
+    """Put a pickup one row above the paddle, where the next tick catches it."""
+    bonus = _Bonus(game.paddle_x, game.paddle_y - 1, kind)
+    game.bonuses.append(bonus)
+    return bonus
 
 
 def test_initial_state():
@@ -319,7 +353,9 @@ def test_diagonal_move_into_a_brick_destroys_it():
 
 def test_tracking_paddle_clears_the_wall_and_levels_up():
     """A paddle that follows the ball must be able to clear a whole wall."""
-    game = Breakout(32, 32, seed=1)
+    # Pickups are disabled: a caught extra life (or a narrower bar) would make
+    # the score and lives assertions below depend on the drop luck.
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
     first_wall = game.total_bricks
     game.launch()
     ticks = 0
@@ -612,4 +648,313 @@ def test_breakout_frame_is_pushed_to_the_panel():
     assert decoded.getpixel((center, game.paddle_y)) == PADDLE_COLOR
     assert decoded.getpixel((game.paddle_x, game.paddle_y)) == PADDLE_EDGE_COLOR
     assert decoded.getpixel((5, 10)) == BALL_COLOR
+
+def test_a_destroyed_brick_drops_a_pickup_at_its_origin():
+    """The pickup is half a brick, left where the top-left of the brick was."""
+    game = Breakout(32, 32, seed=1, bonus_chance=1.0)
+    game.clear_bricks()
+    for origin, color in (((10, 6), (255, 0, 0)), ((20, 6), (0, 255, 0))):
+        game.bricks.add(origin)
+        game.brick_colors[origin] = color
+    game.launch()
+    _hit_brick_from_below(game, 10, 6)
+    assert (10, 6) not in game.bricks
+    assert len(game.bonuses) == 1
+    bonus = game.bonuses[0]
+    assert (bonus.x, bonus.y) == (10, 6)  # the brick's own top-left corner
+    assert bonus.kind in BONUS_KINDS
+
+
+def test_a_pickup_is_half_a_brick():
+    assert BONUS_WIDTH == BRICK_SIZE
+    assert BONUS_HEIGHT == BRICK_SIZE // 2 == 1
+    assert set(BONUS_COLORS) == set(BONUS_KINDS)
+
+
+def test_no_pickup_is_dropped_when_the_drop_chance_is_zero():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    for _ in range(5):
+        _hit_brick_from_below(game, *_lowest_free_brick(game))
+    assert game.score >= 5
+    assert game.bonuses == []
+
+
+def test_every_destroyed_brick_drops_a_pickup_when_the_chance_is_one():
+    game = Breakout(32, 32, seed=1, bonus_chance=1.0)
+    game.clear_bricks()
+    column = [(10, 2 + BRICK_PITCH * i) for i in range(5)]  # five stacked bricks
+    # A sixth, far-away brick keeps the wall from being cleared (which would
+    # start the next level and wipe the falling pickups).
+    for origin in column + [(20, 2)]:
+        game.bricks.add(origin)
+        game.brick_colors[origin] = (255, 0, 0)
+    game.launch()
+    for origin in reversed(column):  # bottom brick first, so each hit is clean
+        _hit_brick_from_below(game, *origin)
+        assert len(game.bonuses) == game.score  # exactly one pickup per brick
+    assert game.score == len(column)
+    assert game.level == 1
+
+
+def test_the_drop_chance_is_clamped_to_a_probability():
+    assert Breakout(32, 32, seed=1).bonus_chance == pytest.approx(0.15)
+    assert Breakout(32, 32, seed=1, bonus_chance=-1).bonus_chance == 0.0
+    assert Breakout(32, 32, seed=1, bonus_chance=2).bonus_chance == 1.0
+
+
+def test_the_pickup_kind_is_reproducible_with_a_seed():
+    def run(seed):
+        game = Breakout(32, 32, seed=seed, bonus_chance=1.0)
+        game.launch()
+        for _ in range(8):
+            _hit_brick_from_below(game, *_lowest_free_brick(game))
+        return [bonus.kind for bonus in game.bonuses], game.score
+
+    kinds, score = run(7)
+    assert kinds == run(7)[0]  # same seed: same wall, same drops, same kinds
+    assert len(kinds) == score >= 8
+    assert all(kind in BONUS_KINDS for kind in kinds)
+
+
+def test_a_pickup_falls_at_the_ball_speed():
+    """One pixel per tick at level 1, exactly like the ball."""
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.ball_x, game.ball_y = 1, 20  # well below the wall, above the paddle
+    game.vx, game.vy = 1, -1
+    bonus = _Bonus(20, 5, BONUS_LIFE)
+    game.bonuses.append(bonus)
+    for _ in range(4):
+        game.step()
+    assert bonus.y == 5 + 4
+    assert game.bonuses == [bonus]
+
+
+def test_a_pickup_falls_as_fast_as_the_ball_when_the_speed_is_fractional():
+    """At 1.1 px/tick both cover 11 px in 10 ticks (a 2 px tick included)."""
+    game = Breakout(32, 32, seed=1, level=_LEVELS_PER_STEP + 1, bonus_chance=0.0)
+    game.clear_bricks()
+    game.bricks.add((0, 0))  # keep the wall from being cleared mid-measurement
+    game.brick_colors[(0, 0)] = (255, 0, 0)
+    game.launch()
+    game.ball_x, game.ball_y = 8, 25
+    game.vx, game.vy = 0, -1
+    bonus = _Bonus(20, 20, BONUS_LIFE)  # outside the bar (12..19), so not caught
+    game.bonuses.append(bonus)
+    for _ in range(10):
+        game.step()
+    assert game.ball_y == 25 - 11
+    assert bonus.y == 20 + 11
+
+
+def test_a_fast_pickup_cannot_tunnel_through_the_paddle():
+    """At the 3 px/tick cap the pickup still lands on the bar (moved 1 px/step)."""
+    game = Breakout(32, 32, seed=1, level=61, bonus_chance=0.0)  # 3 px/tick
+    game.launch()
+    game.lives = 3
+    game.bonuses.append(_Bonus(game.paddle_x + 1, game.paddle_y - 2, BONUS_LIFE))
+    game.step()  # one tick covers three pixels
+    assert game.lives == 4
+    assert game.bonuses == []
+
+
+def test_a_missed_pickup_is_discarded_at_the_bottom():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.ball_x, game.ball_y = 1, 20
+    game.vx, game.vy = 1, -1
+    # Against the right edge of the field: the bar (12..19) never reaches it.
+    game.bonuses.append(_Bonus(game.width - 1, game.paddle_y - 2, BONUS_SHRINK))
+    for _ in range(4):
+        game.step()
+    assert game.bonuses == []
+    assert game.paddle_width == PADDLE_MIN_WIDTH  # the malus never applied
+
+
+def test_pickups_do_not_move_while_the_game_is_ready():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    assert game.state == Breakout.READY
+    bonus = _Bonus(4, 10, BONUS_LIFE)
+    game.bonuses.append(bonus)
+    game.step()
+    assert bonus.y == 10
+    assert game.bonuses == [bonus]
+
+
+def test_catching_a_life_pickup_adds_a_life():
+    game = Breakout(32, 32, seed=1, lives=3, bonus_chance=0.0)
+    game.launch()
+    _pickup_above_the_paddle(game, BONUS_LIFE)
+    game.step()
+    assert game.lives == 4
+    assert game.bonuses == []  # a caught pickup is consumed
+
+
+def test_catching_a_ball_pickup_sends_a_second_ball():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.ball_x, game.ball_y = 5, 20
+    game.vx, game.vy = 1, -1
+    _pickup_above_the_paddle(game, BONUS_BALL)
+    game.step()
+    assert len(game.balls) == 2
+    first, extra = game.balls
+    assert extra is not first
+    assert extra.vy == -1  # it leaves the paddle going up
+    assert (first.vx, extra.vx) == (1, -1)  # sent the other way: they diverge
+    x0, x1 = first.x, extra.x
+    game.step()
+    assert first.x == x0 + 1  # ...and then travel on their own
+    assert extra.x == x1 - 1
+
+
+def test_the_number_of_balls_is_capped():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    for _ in range(_MAX_BALLS + 2):
+        _pickup_above_the_paddle(game, BONUS_BALL)
+        game.step()
+    assert len(game.balls) == _MAX_BALLS
+
+
+def test_losing_one_of_two_balls_does_not_cost_a_life():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    _pickup_above_the_paddle(game, BONUS_BALL)
+    game.step()
+    assert len(game.balls) == 2
+    first, extra = game.balls
+    first.x, first.y, first.vx, first.vy = 1, game.height - 1, 1, 1  # dropped
+    extra.x, extra.y, extra.vx, extra.vy = 5, 20, 1, -1
+    game.step()
+    assert game.lives == 3  # only the last ball costs a life
+    assert len(game.balls) == 1
+    assert game.state == Breakout.RUNNING
+    assert (game.ball_x, game.ball_y) == (6, 19)  # the game follows the survivor
+
+
+def test_the_game_ends_when_the_last_ball_is_lost():
+    game = Breakout(32, 32, seed=1, lives=1, bonus_chance=0.0)
+    game.launch()
+    _pickup_above_the_paddle(game, BONUS_BALL)
+    game.step()
+    assert len(game.balls) == 2
+    for ball in game.balls:
+        ball.x, ball.y, ball.vx, ball.vy = 1, game.height - 1, 1, 1
+    game.step()
+    assert game.lives == 0
+    assert game.state == Breakout.GAME_OVER
+
+
+def test_catching_a_grow_pickup_widens_the_paddle_by_one_pixel_per_side():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    width = game.paddle_width
+    center = game.paddle_x + width // 2
+    _pickup_above_the_paddle(game, BONUS_GROW)
+    game.step()
+    assert game.paddle_width == width + 2  # one pixel on each side
+    assert game.paddle_x == center - game.paddle_width // 2  # centre kept
+    assert game.paddle_x + game.paddle_width <= game.width
+
+
+def test_a_grow_pickup_keeps_the_paddle_inside_the_field():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.move_paddle(-1000)  # the bar is against the left edge
+    width = game.paddle_width
+    _pickup_above_the_paddle(game, BONUS_GROW)
+    game.step()
+    assert game.paddle_width == width + 2
+    assert game.paddle_x == 0
+    assert game.paddle_x + game.paddle_width <= game.width
+
+
+def test_the_paddle_width_stops_at_its_bounds():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    assert game.paddle_width == PADDLE_MIN_WIDTH == 8
+    game.launch()
+    for kind, expected in (
+        (BONUS_GROW, 10),
+        (BONUS_GROW, PADDLE_MAX_WIDTH),
+        (BONUS_GROW, PADDLE_MAX_WIDTH),  # capped
+        (BONUS_SHRINK, PADDLE_MAX_WIDTH - 2),
+        (BONUS_SHRINK, PADDLE_MIN_WIDTH),
+        (BONUS_SHRINK, PADDLE_MIN_WIDTH),  # floored
+    ):
+        _pickup_above_the_paddle(game, kind)
+        game.step()
+        assert game.paddle_width == expected
+
+
+def test_the_paddle_bounds_never_override_the_panel_width():
+    """A bar wider than the ceiling keeps its width; a narrower one keeps too."""
+    wide = Breakout(64, 32, seed=1, bonus_chance=0.0)  # 64 // 4 = 16 px
+    assert wide.paddle_width == 16 > PADDLE_MAX_WIDTH
+    wide.launch()
+    _pickup_above_the_paddle(wide, BONUS_GROW)
+    wide.step()
+    assert wide.paddle_width == 16  # already above the ceiling: no widening
+    _pickup_above_the_paddle(wide, BONUS_SHRINK)
+    wide.step()
+    assert wide.paddle_width == 14  # but a malus still narrows it
+
+    small = Breakout(16, 16, seed=1)  # 16 // 4 = 4 px
+    assert small.base_paddle_width == 4 < PADDLE_MIN_WIDTH
+    assert small.paddle_width == 4
+
+
+def test_the_paddle_width_survives_a_level_change_but_not_a_replay():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    _pickup_above_the_paddle(game, BONUS_GROW)
+    game.step()
+    assert game.paddle_width == PADDLE_MIN_WIDTH + 2
+    game.clear_bricks()
+    game.ball_x, game.ball_y = 16, 20
+    game.vx, game.vy = 1, 1
+    game.step()
+    assert game.level == 2
+    assert game.paddle_width == PADDLE_MIN_WIDTH + 2  # kept across levels
+    game.reset(seed=1)
+    assert game.paddle_width == PADDLE_MIN_WIDTH  # a replay starts from scratch
+
+
+def test_pickups_are_cleared_when_a_life_is_lost():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.bonuses.append(_Bonus(4, 10, BONUS_LIFE))
+    game.ball_x, game.ball_y = 1, game.height - 1
+    game.vx, game.vy = 1, 1
+    game.step()
+    assert game.lives == 2
+    assert game.bonuses == []
+
+
+def test_pickups_are_cleared_when_the_level_advances():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.bonuses.append(_Bonus(4, 10, BONUS_LIFE))
+    game.clear_bricks()
+    game.ball_x, game.ball_y = 16, 20
+    game.vx, game.vy = 1, 1
+    game.step()
+    assert game.level == 2
+    assert game.bonuses == []
+
+
+def test_render_draws_pickups_with_their_kind_colour():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    for i, kind in enumerate(BONUS_KINDS):
+        game.bonuses.append(_Bonus(4, 10 + 4 * i, kind))
+    img = game.render()
+    for bonus in game.bonuses:
+        color = BONUS_COLORS[bonus.kind]
+        for dx in range(BONUS_WIDTH):
+            assert img.getpixel((bonus.x + dx, bonus.y)) == color
+        # Half a brick: exactly one row tall, and nothing bleeds around it.
+        assert img.getpixel((bonus.x, bonus.y + 1)) == (0, 0, 0)
+        assert img.getpixel((bonus.x - 1, bonus.y)) == (0, 0, 0)
+
 
