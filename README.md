@@ -101,8 +101,8 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   up to a full wall) and speeds the ball up (one extra pixel per tick every
   five levels, capped at 3), and rewards the player with **one extra life
   every five levels**; the score keeps accumulating, so only running out of
-  lives ends the game.
-  `--level` starts at a higher level.
+  lives ends the game. `--level` starts at a higher level and grants the extra
+  lives it would have earned on the way (`--lives` is the count at level 1).
 - `pixelled-play tetris` also draws everything on the panel; its (minimal)
   window only captures the keyboard: arrows/`A`-`D` move the piece, up/`W`/`X`
   rotate clockwise, `Z` rotates counter-clockwise, down/`S` soft drops, space

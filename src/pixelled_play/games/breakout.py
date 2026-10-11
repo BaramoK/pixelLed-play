@@ -90,7 +90,8 @@ class Breakout:
     width, height:
         Field size in pixels (the panel size).
     lives:
-        Number of balls available (default 3).
+        Number of balls available at level 1 (a higher starting level adds the
+        extra lives it would have earned on the way).
     seed:
         Optional RNG seed; when given the random wall is reproducible.
     density:
@@ -98,8 +99,8 @@ class Breakout:
     speed:
         Pixels travelled per tick (``>= 1``), at level 1.
     level:
-        Starting level (default 1); higher levels start with a denser wall and
-        a faster ball.
+        Starting level (default 1); higher levels start with a denser wall, a
+        faster ball and the extra lives earned up to that level.
     hud:
         When true, the top row is reserved for the on-panel HUD
         (score bar on the left, level then remaining lives on the right).
@@ -184,7 +185,9 @@ class Breakout:
         """Start a new game, rebuilding the (random) wall."""
         self._rng = random.Random(seed)
         self.level = self.initial_level
-        self.lives = self.initial_lives
+        # Starting at level N must feel like a run that just reached N, so the
+        # extra lives awarded at levels 5, 10, 15, ... are already in the bag.
+        self.lives = self.initial_lives + self.level // _LEVELS_PER_LIFE
         self.score = 0
         self.level_score = 0
         self.state = self.READY
@@ -477,9 +480,11 @@ def run_breakout(
         fps: Target game/send rate (frames per second).
         seed: Optional RNG seed for a reproducible wall.
         density: Probability for a wall cell to contain a brick (0..1) at level 1.
-        lives: Number of balls available.
+        lives: Number of balls available at level 1 (higher starting levels add
+            the extra lives they would have earned).
         speed: Pixels travelled per tick (``>= 1``) at level 1.
-        level: Starting level (default 1).
+        level: Starting level (default 1); it also grants the extra lives earned
+            up to that level.
         hud: Draw the on-panel HUD (score bar + level + lives).
         panel: Optional already connected panel to use instead of connecting;
             a borrowed panel is left open (see :func:`pixelled_lib.library.panel.use_panel`).

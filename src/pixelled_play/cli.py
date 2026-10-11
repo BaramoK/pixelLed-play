@@ -49,7 +49,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--fps", type=float, default=15.0, help="Game/send rate in fps (default 15)."
     )
     p_breakout.add_argument(
-        "--level", type=int, default=1, help="Starting level (default 1)."
+        "--level",
+        type=int,
+        default=1,
+        help="Starting level (default 1); also grants the lives earned so far.",
     )
     p_breakout.add_argument(
         "--speed",
@@ -58,7 +61,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ball speed in pixels per tick (default 1).",
     )
     p_breakout.add_argument(
-        "--lives", type=int, default=3, help="Number of balls (default 3)."
+        "--lives",
+        type=int,
+        default=3,
+        help="Number of balls at level 1 (default 3).",
     )
     p_breakout.add_argument(
         "--density",

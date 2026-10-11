@@ -393,6 +393,14 @@ def test_starting_level_can_be_chosen():
     assert game.initial_level == 3
 
 
+def test_starting_level_comes_with_the_lives_it_would_have_earned():
+    """``--level 10`` must start with the extra lives levels 5 and 10 award."""
+    for level, expected in ((1, 3), (4, 3), (5, 4), (9, 4), (10, 5), (15, 6)):
+        game = Breakout(32, 32, seed=1, lives=3, level=level)
+        assert game.lives == expected
+        assert game.lives == 3 + level // _LEVELS_PER_LIFE
+
+
 def test_density_rises_with_the_level_and_is_capped():
     low = Breakout(32, 32, seed=1, level=1)
     high = Breakout(32, 32, seed=1, level=5)
@@ -413,18 +421,24 @@ def test_speed_rises_with_the_level_and_is_capped():
 
 
 def test_reset_returns_to_the_starting_level():
-    game = Breakout(32, 32, seed=1, level=2)
+    game = Breakout(32, 32, seed=1, level=5)
+    assert game.lives == 4  # the starting level already earned one extra life
     game.launch()
     game.clear_bricks()
     game.ball_x, game.ball_y = 16, 20
     game.vx, game.vy = 1, 1
     game.step()
-    assert game.level == 3
+    assert game.level == 6
+    game.launch()
+    game.ball_x, game.ball_y = 1, game.height - 1  # lose the ball
+    game.vx, game.vy = 1, 1
+    game.step()
+    assert game.lives == 3
     game.reset(seed=1)
-    assert game.level == 2
+    assert game.level == 5
     assert game.score == 0
     assert game.level_score == 0
-    assert game.lives == game.initial_lives
+    assert game.lives == 4  # the starting level's extra life is granted again
 
 
 def test_render_returns_rgb_at_panel_size():
