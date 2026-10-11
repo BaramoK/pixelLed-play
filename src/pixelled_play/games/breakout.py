@@ -6,6 +6,9 @@ it can be unit tested without hardware - exactly like
 :func:`run_breakout` wires it to a real panel:
 everything (field + HUD) is displayed on the LED matrix, and a *minimal*
 tkinter window is used only to capture keyboard input.
+
+Levels are endless: clearing a wall builds a harder one and awards an extra
+life, so the game only ends when the player runs out of lives.
 """
 
 from __future__ import annotations
@@ -44,12 +47,20 @@ BALL_COLOR: Color = (255, 255, 255)
 
 HUD_SCORE_COLOR: Color = (0, 200, 0)
 HUD_LIVES_COLOR: Color = (255, 255, 255)
+HUD_LEVEL_COLOR: Color = (255, 255, 0)
 HUD_OVER_COLOR: Color = (255, 0, 0)
-HUD_WIN_COLOR: Color = (0, 255, 0)
 
 # Paddle bounces allowed without destroying a brick before the ball is nudged
 # onto a fresh trajectory (keeps a single brick from becoming unreachable).
 _DRY_BOUNCE_LIMIT = 5
+
+# Endless levels: each cleared wall starts a new, harder one (a denser wall and
+# a slightly faster ball) and rewards the player with extra lives, so a good run
+# lasts. There is no "win" state - only running out of lives ends the game.
+_LEVEL_DENSITY_STEP = 0.08  # density added per level (capped at 1.0)
+_LEVELS_PER_SPEED_UP = 3  # one extra pixel per tick every this many levels
+_MAX_SPEED = 4  # hard cap on the ball speed, whatever the level
+_LIVES_PER_LEVEL = 1  # extra lives awarded each time a wall is cleared
 
 
 def _clamp(value: int, low: int, high: int) -> int:
@@ -58,14 +69,19 @@ def _clamp(value: int, low: int, high: int) -> int:
 
 
 class Breakout:
-    """A single-level brick breaker game.
+    """An endless brick breaker game.
 
-    The whole game state (wall, paddle, ball, lives, score) lives here and is
-    rendered by :meth:`render`. Nothing in this class touches the panel.
+    The whole game state (wall, paddle, ball, lives, score, level) lives here
+    and is rendered by :meth:`render`. Nothing in this class touches the panel.
 
     Geometry: the paddle is a 2-row bar sitting on the last row, the wall is
     built from 2x2 px bricks laid out edge to edge (:data:`BRICK_PITCH` grid)
     and the ball is a single pixel.
+
+    Levels are endless: clearing a wall calls :meth:`advance_level`, which
+    builds a denser and slightly faster wall, rewards the player with
+    :data:`_LIVES_PER_LEVEL` extra lives and keeps score and lives. There is no
+    "win" state - the game only ends when the player runs out of lives.
 
     Parameters
     ----------
@@ -76,18 +92,20 @@ class Breakout:
     seed:
         Optional RNG seed; when given the random wall is reproducible.
     density:
-        Probability for a wall cell to contain a brick (0..1).
+        Probability for a wall cell to contain a brick (0..1), at level 1.
     speed:
-        Pixels travelled per tick (``>= 1``).
+        Pixels travelled per tick (``>= 1``), at level 1.
+    level:
+        Starting level (default 1); higher levels start with a denser wall and
+        a faster ball.
     hud:
         When true, the top row is reserved for the on-panel HUD
-        (score bar on the left, remaining lives on the right).
+        (score bar on the left, level then remaining lives on the right).
     """
 
     READY = "ready"
     RUNNING = "running"
     GAME_OVER = "game_over"
-    WON = "won"
 
     def __init__(
         self,
@@ -97,6 +115,7 @@ class Breakout:
         seed: Optional[int] = None,
         density: float = 0.6,
         speed: int = 1,
+        level: int = 1,
         hud: bool = True,
     ):
         self.width = int(width)
@@ -104,6 +123,7 @@ class Breakout:
         self.initial_lives = max(1, int(lives))
         self.density = min(1.0, max(0.0, float(density)))
         self.speed = max(1, int(speed))
+        self.initial_level = max(1, int(level))
         self.hud = bool(hud)
         self.reset(seed=seed)
 
@@ -133,6 +153,18 @@ class Breakout:
         """Bottom row of the paddle (the last row of the field)."""
         return self.paddle_y + self.paddle_height - 1
 
+    @property
+    def level_density(self) -> float:
+        """Wall density at the current level (rises with the level, capped at 1)."""
+        return min(1.0, self.density + (self.level - 1) * _LEVEL_DENSITY_STEP)
+
+    @property
+    def level_speed(self) -> int:
+        """Ball speed in pixels per tick at the current level (capped)."""
+        return min(
+            _MAX_SPEED, self.speed + (self.level - 1) // _LEVELS_PER_SPEED_UP
+        )
+
     def _brick_at(self, x: int, y: int) -> Optional[tuple[int, int]]:
         """Return the origin of the brick covering ``(x, y)``, or ``None``.
 
@@ -149,8 +181,10 @@ class Breakout:
     def reset(self, seed: Optional[int] = None) -> None:
         """Start a new game, rebuilding the (random) wall."""
         self._rng = random.Random(seed)
+        self.level = self.initial_level
         self.lives = self.initial_lives
         self.score = 0
+        self.level_score = 0
         self.state = self.READY
         self.paddle_x = (self.width - self.paddle_width) // 2
         self.paddle_vx = 0
@@ -188,14 +222,14 @@ class Breakout:
     # -- simulation -------------------------------------------------------
     def step(self) -> None:
         """Advance the simulation by one tick."""
-        if self.state in (self.GAME_OVER, self.WON):
+        if self.state == self.GAME_OVER:
             return
         if self.state == self.READY:
             # The ball rides on the paddle until it is launched.
             self.ball_x = self.paddle_x + self.paddle_width // 2
             self.ball_y = self.paddle_y - 1
             return
-        for _ in range(self.speed):
+        for _ in range(self.level_speed):
             self._unit_step()
             if self.state != self.RUNNING:
                 break
@@ -279,13 +313,14 @@ class Breakout:
             return
 
         if not self.bricks:
-            self.state = self.WON
+            self.advance_level()
 
     def _hit_brick(self, x: int, y: int) -> None:
         """Remove the brick at ``(x, y)`` and update the score."""
         self.bricks.discard((x, y))
         self.brick_colors.pop((x, y), None)
         self.score += 1
+        self.level_score += 1
         self._dry_bounces = 0
 
     def _lose_ball(self) -> None:
@@ -301,12 +336,35 @@ class Breakout:
         else:
             self.state = self.READY
 
-    def _build_wall(self) -> None:
-        """Build the random brick wall for the current field size.
+    def advance_level(self) -> None:
+        """Start the next (harder) level once the current wall is cleared.
 
-        The grid starts on a multiple of :data:`BRICK_PITCH` (that is what makes
-        :meth:`_brick_at` a plain modulo) and never comes closer than two rows
-        above the paddle, so there is always room to play.
+        Score and lives carry over, and the player is rewarded with
+        :data:`_LIVES_PER_LEVEL` extra lives; only the ball is put back on the
+        (re-centred) paddle, ready to be launched again. Levels are endless, so
+        this never ends the game - running out of lives does.
+        """
+        self.level += 1
+        self.level_score = 0
+        self.lives += _LIVES_PER_LEVEL
+        self.paddle_x = (self.width - self.paddle_width) // 2
+        self.paddle_vx = 0
+        self._dry_bounces = 0
+        self.vx = 0
+        self.vy = 0
+        self.ball_x = self.paddle_x + self.paddle_width // 2
+        self.ball_y = self.paddle_y - 1
+        self.state = self.READY
+        self._build_wall()
+
+    def _build_wall(self) -> None:
+        """Build the random brick wall for the current field size and level.
+
+        The cell fill probability is :attr:`level_density`, so the wall gets
+        denser as the level rises. The grid starts on a multiple of
+        :data:`BRICK_PITCH` (that is what makes :meth:`_brick_at` a plain
+        modulo) and never comes closer than two rows above the paddle, so there
+        is always room to play.
         """
         top = -(-self.hud_rows // BRICK_PITCH) * BRICK_PITCH
         usable = self.paddle_y - 2 - top
@@ -321,7 +379,7 @@ class Breakout:
             color = BRICK_PALETTE[row % len(BRICK_PALETTE)]
             for col in range(cols):
                 x = col * BRICK_PITCH
-                if self._rng.random() < self.density:
+                if self._rng.random() < self.level_density:
                     self.bricks.add((x, y))
                     self.brick_colors[(x, y)] = color
         if not self.bricks:  # guarantee at least one brick
@@ -331,7 +389,12 @@ class Breakout:
         self.total_bricks = len(self.bricks)
 
     def clear_bricks(self) -> None:
-        """Remove every brick (useful for tests and the win condition)."""
+        """Remove every brick (mainly useful for tests).
+
+        Clearing the wall while the ball is moving makes the next
+        :meth:`_unit_step` see an empty wall and start the next level, exactly
+        as if the last brick had just been destroyed.
+        """
         self.bricks.clear()
         self.brick_colors.clear()
 
@@ -360,24 +423,25 @@ class Breakout:
         return img
 
     def _draw_hud(self, draw: ImageDraw.ImageDraw) -> None:
-        """Draw the top-row HUD: score bar (left) and lives (right)."""
+        """Draw the top-row HUD: score bar (left), level then lives (right)."""
         y = 0
         if self.state == self.GAME_OVER:
             draw.line([0, y, self.width - 1, y], fill=HUD_OVER_COLOR)
             return
-        if self.state == self.WON:
-            draw.line([0, y, self.width - 1, y], fill=HUD_WIN_COLOR)
-            return
+        # Lives: one white pixel each, packed against the right edge.
         lives = min(self.lives, self.width)
         for i in range(lives):
             draw.point((self.width - 1 - i, y), fill=HUD_LIVES_COLOR)
-        span = max(1, self.width - lives - 1)
+        # Level: one yellow pixel per level, just left of the lives.
+        level_w = min(self.level, max(0, self.width - lives - 1))
+        for i in range(level_w):
+            draw.point((self.width - lives - 1 - i, y), fill=HUD_LEVEL_COLOR)
+        # Score bar: green, one pixel per fraction of the current wall cleared.
+        span = max(0, self.width - lives - level_w - 1)
         filled = 0
-        if self.total_bricks:
-            filled = int(round(self.score / self.total_bricks * span))
-        for i in range(filled):
-            if i >= self.width - lives - 1:
-                break
+        if self.total_bricks and span:
+            filled = int(round(self.level_score / self.total_bricks * span))
+        for i in range(min(filled, span)):
             draw.point((i, y), fill=HUD_SCORE_COLOR)
 
 
@@ -389,6 +453,7 @@ def run_breakout(
     density: float = 0.6,
     lives: int = 3,
     speed: int = 1,
+    level: int = 1,
     hud: bool = True,
     panel: Optional[Panel] = None,
 ) -> None:
@@ -398,15 +463,20 @@ def run_breakout(
     window is opened only to capture the keyboard, which gives a smooth,
     continuously moving paddle.
 
+    Levels are endless: clearing a wall builds a denser and faster one and
+    rewards the player with an extra life, so the run only ends when the player
+    runs out of lives.
+
     Args:
         address: Bluetooth MAC address of the panel.
         brightness: Optional brightness (0-100) applied on connect.
         fps: Target game/send rate (frames per second).
         seed: Optional RNG seed for a reproducible wall.
-        density: Probability for a wall cell to contain a brick (0..1).
+        density: Probability for a wall cell to contain a brick (0..1) at level 1.
         lives: Number of balls available.
-        speed: Pixels travelled per tick (``>= 1``).
-        hud: Draw the on-panel HUD (score bar + lives).
+        speed: Pixels travelled per tick (``>= 1``) at level 1.
+        level: Starting level (default 1).
+        hud: Draw the on-panel HUD (score bar + level + lives).
         panel: Optional already connected panel to use instead of connecting;
             a borrowed panel is left open (see :func:`pixelled_lib.library.panel.use_panel`).
     """
@@ -426,6 +496,7 @@ def run_breakout(
             seed=seed,
             density=density,
             speed=speed,
+            level=level,
             hud=hud,
         )
         sender = FrameSender(panel, fps)
@@ -439,8 +510,9 @@ def run_breakout(
 
         def status_text() -> str:
             return (
-                f"lives={game.lives}  score={game.score}/{game.total_bricks}  "
-                f"state={game.state}\n"
+                f"level={game.level}  lives={game.lives}  "
+                f"bricks={game.level_score}/{game.total_bricks}  "
+                f"score={game.score}  state={game.state}\n"
                 "left/right or A/D: paddle    space: launch    "
                 "r: replay    q/Esc: quit"
             )

@@ -13,12 +13,14 @@ from pixelled_play.games.breakout import (
     BALL_COLOR,
     BRICK_PITCH,
     BRICK_SIZE,
+    HUD_LEVEL_COLOR,
     HUD_LIVES_COLOR,
     HUD_OVER_COLOR,
     HUD_SCORE_COLOR,
-    HUD_WIN_COLOR,
     PADDLE_COLOR,
     Breakout,
+    _LIVES_PER_LEVEL,
+    _MAX_SPEED,
 )
 from pixelled_lib.library.panel import Panel
 
@@ -270,25 +272,36 @@ def test_diagonal_move_into_a_brick_destroys_it():
     """Regression: a diagonal move must not tunnel straight into a brick."""
     game = Breakout(32, 32, seed=1)
     game.launch()
-    # A single isolated brick: the ball comes in diagonally at its bottom-left
-    # corner, so only the "destination cell itself" check can stop it.
+    # Two isolated bricks: the ball comes in diagonally at the bottom-left
+    # corner of one of them, so only the "destination cell itself" check can
+    # stop it. The second brick keeps the wall from being cleared (which would
+    # start the next level and rebuild a fresh wall).
     game.clear_bricks()
     game.bricks.add((10, 10))
     game.brick_colors[(10, 10)] = (255, 0, 0)
+    game.bricks.add((20, 10))
+    game.brick_colors[(20, 10)] = (0, 255, 0)
     game.ball_x, game.ball_y = 9, 12
     game.vx, game.vy = 1, -1
     game.step()
     assert (10, 10) not in game.bricks
     assert (game.ball_x, game.ball_y) != (10, 10)
     assert game.vx == -1 and game.vy == 1
+    assert game.level == 1
+    assert game.level_score == 1
 
 
-def test_tracking_paddle_clears_the_whole_wall():
-    """A paddle that follows the ball must be able to finish the level."""
+def test_tracking_paddle_clears_the_wall_and_levels_up():
+    """A paddle that follows the ball must be able to clear a whole wall."""
     game = Breakout(32, 32, seed=1)
+    first_wall = game.total_bricks
     game.launch()
     ticks = 0
-    while game.state in (Breakout.RUNNING, Breakout.READY) and ticks < 60000:
+    while (
+        game.level == 1
+        and game.state != Breakout.GAME_OVER
+        and ticks < 60000
+    ):
         target = game.ball_x - game.paddle_width // 2
         if game.paddle_x < target:
             game.move_paddle(1)
@@ -302,8 +315,10 @@ def test_tracking_paddle_clears_the_whole_wall():
         assert game._brick_at(game.ball_x, game.ball_y) is None
         assert game.hud_rows <= game.ball_y <= game.height
         ticks += 1
-    assert game.state == Breakout.WON
-    assert game.score == game.total_bricks
+    assert game.level == 2
+    assert game.state == Breakout.READY
+    assert game.score == first_wall
+    assert game.lives == 3 + _LIVES_PER_LEVEL
 
 
 def test_lost_ball_decrements_lives_and_resets():
@@ -330,14 +345,78 @@ def test_game_over_after_three_lost_balls():
     assert game.state == Breakout.GAME_OVER
 
 
-def test_win_when_all_bricks_are_cleared():
+def test_clearing_the_wall_advances_to_the_next_level():
     game = Breakout(32, 32, seed=1)
     game.launch()
     game.clear_bricks()
     game.ball_x, game.ball_y = 16, 20
     game.vx, game.vy = 1, 1
     game.step()
-    assert game.state == Breakout.WON
+    assert game.level == 2
+    assert game.state == Breakout.READY
+    assert game.bricks  # a fresh wall was built for the new level
+    assert game.level_score == 0
+
+
+def test_advance_level_awards_a_life_and_keeps_the_score():
+    game = Breakout(32, 32, seed=1, lives=3)
+    game.score = 7
+    game.launch()
+    game.clear_bricks()
+    game.ball_x, game.ball_y = 16, 20
+    game.vx, game.vy = 1, 1
+    game.step()
+    assert game.level == 2
+    assert game.lives == 3 + _LIVES_PER_LEVEL
+    assert game.score == 7  # the running total is untouched
+    assert game.level_score == 0  # but the per-level bar resets
+
+
+def test_every_cleared_level_awards_a_life():
+    game = Breakout(32, 32, seed=1, lives=3)
+    for expected_level in (2, 3):
+        game.launch()
+        game.clear_bricks()
+        game.ball_x, game.ball_y = 16, 20
+        game.vx, game.vy = 1, 1
+        game.step()
+        assert game.level == expected_level
+    assert game.lives == 3 + 2 * _LIVES_PER_LEVEL
+
+
+def test_starting_level_can_be_chosen():
+    game = Breakout(32, 32, seed=1, level=3)
+    assert game.level == 3
+    assert game.initial_level == 3
+
+
+def test_density_rises_with_the_level_and_is_capped():
+    low = Breakout(32, 32, seed=1, level=1)
+    high = Breakout(32, 32, seed=1, level=5)
+    assert high.level_density > low.level_density
+    assert Breakout(32, 32, seed=1, density=1.0, level=10).level_density == 1.0
+
+
+def test_speed_rises_with_the_level_and_is_capped():
+    low = Breakout(32, 32, seed=1, level=1)
+    high = Breakout(32, 32, seed=1, level=7)
+    assert high.level_speed > low.level_speed
+    assert Breakout(32, 32, seed=1, level=1000).level_speed == _MAX_SPEED
+
+
+def test_reset_returns_to_the_starting_level():
+    game = Breakout(32, 32, seed=1, level=2)
+    game.launch()
+    game.clear_bricks()
+    game.ball_x, game.ball_y = 16, 20
+    game.vx, game.vy = 1, 1
+    game.step()
+    assert game.level == 3
+    game.reset(seed=1)
+    assert game.level == 2
+    assert game.score == 0
+    assert game.level_score == 0
+    assert game.lives == game.initial_lives
 
 
 def test_render_returns_rgb_at_panel_size():
@@ -364,15 +443,15 @@ def test_hud_shows_remaining_lives_on_the_right():
         assert img.getpixel((31 - i, 0)) == HUD_LIVES_COLOR
 
 
-def test_hud_score_bar_grows_with_score():
+def test_hud_score_bar_grows_with_the_level_progress():
     game = Breakout(32, 32, seed=1)
-    game.score = 0
+    game.level_score = 0
     empty = sum(
         1
         for x in range(game.width)
         if game.render().getpixel((x, 0)) == HUD_SCORE_COLOR
     )
-    game.score = game.total_bricks
+    game.level_score = game.total_bricks
     full = sum(
         1
         for x in range(game.width)
@@ -389,11 +468,22 @@ def test_hud_is_red_on_game_over():
     assert all(img.getpixel((x, 0)) == HUD_OVER_COLOR for x in range(game.width))
 
 
-def test_hud_is_green_when_won():
+def test_hud_shows_one_pixel_per_level():
     game = Breakout(32, 32, seed=1)
-    game.state = Breakout.WON
-    img = game.render()
-    assert all(img.getpixel((x, 0)) == HUD_WIN_COLOR for x in range(game.width))
+    game.level = 1
+    one = sum(
+        1
+        for x in range(game.width)
+        if game.render().getpixel((x, 0)) == HUD_LEVEL_COLOR
+    )
+    game.level = 3
+    three = sum(
+        1
+        for x in range(game.width)
+        if game.render().getpixel((x, 0)) == HUD_LEVEL_COLOR
+    )
+    assert one == 1
+    assert three == 3
 
 
 def test_no_hud_leaves_the_top_row_to_the_field():

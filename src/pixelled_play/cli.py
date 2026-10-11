@@ -49,6 +49,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--fps", type=float, default=15.0, help="Game/send rate in fps (default 15)."
     )
     p_breakout.add_argument(
+        "--level", type=int, default=1, help="Starting level (default 1)."
+    )
+    p_breakout.add_argument(
         "--speed",
         type=int,
         default=1,
@@ -127,6 +130,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             density=args.density,
             lives=args.lives,
             speed=args.speed,
+            level=args.level,
             hud=args.hud,
         )
         return 0

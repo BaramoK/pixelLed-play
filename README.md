@@ -7,7 +7,8 @@ Games rendered entirely on **iPixel Color** LED matrix panels, built on
 - **Breakout** — a small brick-breaker demo: the whole game (field + HUD) is
   drawn on the panel, while a minimal window only captures the keyboard. The
   wall is built from 2x2 px bricks packed edge to edge, the paddle is a 2 px bar
-  and the ball is a single pixel.
+  and the ball is a single pixel. Levels are endless: clearing a wall builds a
+  denser, slightly faster one and awards an extra life.
 - **Tetris** — a small Tetris demo, also played entirely on the panel: a 10
   block wide field of fixed 2x2 px blocks with a 12 px HUD band on its right
   (next piece preview, score bar, level bar). 7-bag randomizer, wall kicks,
@@ -63,7 +64,7 @@ pip install -e . --no-deps
 
 ```bash
 # Play a brick-breaker demo entirely on the panel (q to quit)
-pixelled-play breakout -a 30:E1:AF:BD:5F:D0 --fps 15 --lives 3 --seed 42
+pixelled-play breakout -a 30:E1:AF:BD:5F:D0 --fps 15 --level 1 --lives 3 --seed 42
 
 # Play a Tetris demo entirely on the panel (q to quit)
 pixelled-play tetris -a 30:E1:AF:BD:5F:D0 --fps 10 --level 1 --seed 42
@@ -91,10 +92,16 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
 - `pixelled-play breakout` draws everything on the panel; its (minimal) window
   only captures the keyboard: arrows/`A`-`D` move the paddle, space launches,
   `r` replays a new random wall and `q`/Esc quits. The HUD lives on the panel's
-  top row (green score bar on the left, remaining lives on the right); disable it
-  with `--no-hud`. Bricks are 2x2 px blocks packed edge to edge (no gap), so the
-  wall looks like the classic solid mass: `--density` is the probability for a
-  2x2 cell to be filled, lower it (e.g. `--density 0.45`) for a lighter wall.
+  top row (green score bar for the current level on the left, then a yellow
+  level bar, then the remaining lives on the right); disable it with `--no-hud`.
+  Bricks are 2x2 px blocks packed edge to edge (no gap), so the wall looks like
+  the classic solid mass: `--density` is the probability for a 2x2 cell to be
+  filled, lower it (e.g. `--density 0.45`) for a lighter wall. Levels are
+  endless: clearing every brick builds a denser wall (density +0.08 per level,
+  up to a full wall) and speeds the ball up (one extra pixel per tick every
+  three levels, capped at 4), and rewards the player with **one extra life**;
+  the score keeps accumulating, so only running out of lives ends the game.
+  `--level` starts at a higher level.
 - `pixelled-play tetris` also draws everything on the panel; its (minimal)
   window only captures the keyboard: arrows/`A`-`D` move the piece, up/`W`/`X`
   rotate clockwise, `Z` rotates counter-clockwise, down/`S` soft drops, space
