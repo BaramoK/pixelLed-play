@@ -7,8 +7,9 @@ Games rendered entirely on **iPixel Color** LED matrix panels, built on
 - **Breakout** — a small brick-breaker demo: the whole game (field + HUD) is
   drawn on the panel, while a minimal window only captures the keyboard. The
   wall is built from 2x2 px bricks packed edge to edge, the paddle is a 2 px bar
-  and the ball is a single pixel. Levels are endless: clearing a wall builds a
-  denser, slightly faster one and awards an extra life every five levels.
+  with red-orange tips and the ball is a single pixel. Levels are endless:
+  clearing a wall builds a taller, denser, slightly faster one and awards an
+  extra life every five levels.
 - **Tetris** — a small Tetris demo, also played entirely on the panel: a 10
   block wide field of fixed 2x2 px blocks with a 12 px HUD band on its right
   (next piece preview, score bar, level bar). 7-bag randomizer, wall kicks,
@@ -96,14 +97,17 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   level bar, then the remaining lives on the right); disable it with `--no-hud`.
   Bricks are 2x2 px blocks packed edge to edge (no gap), so the wall looks like
   the classic solid mass: `--density` is the probability for a 2x2 cell to be
-  filled **at level 1** (default 0.2); raise it (e.g. `--density 0.4`) for a
-  denser wall. Levels are endless: clearing every brick builds a denser wall
-  (density +0.1 every five levels, up to a full wall) and speeds the ball up
-  (x1.1, i.e. +10 %, every five levels, capped at 3 px/tick), and rewards the
-  player with **one extra life every five levels**; the score keeps
+  filled **at level 1** (default 0.5); raise it (e.g. `--density 0.8`) for a
+  denser wall. The paddle is a white 2 px bar whose two end columns are
+  red-orange, so it reads as a paddle and not a plain white block; the ball is a
+  single white pixel. Levels are endless: clearing every brick builds a taller wall
+  (3 rows at level 1, +1 row every five levels, up to what the panel holds) that
+  is also denser (density +0.1 every five levels, up to a full wall) and speeds
+  the ball up (x1.1, i.e. +10 %, every five levels, capped at 3 px/tick), and
+  rewards the player with **one extra life every five levels**; the score keeps
   accumulating, so only running out of lives ends the game. `--level` starts at
-  a higher level and grants the extra lives it would have earned on the way
-  (`--lives` is the count at level 1).
+  a higher level and grants the extra rows and lives it would have earned on the
+  way (`--lives` is the count at level 1).
 - `pixelled-play tetris` also draws everything on the panel; its (minimal)
   window only captures the keyboard: arrows/`A`-`D` move the piece, up/`W`/`X`
   rotate clockwise, `Z` rotates counter-clockwise, down/`S` soft drops, space

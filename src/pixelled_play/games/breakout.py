@@ -7,9 +7,10 @@ it can be unit tested without hardware - exactly like
 everything (field + HUD) is displayed on the LED matrix, and a *minimal*
 tkinter window is used only to capture keyboard input.
 
-Levels are endless: clearing a wall builds a harder one (denser, and 10 %
-faster every five levels) and awards an extra life every five levels, so the
-game only ends when the player runs out of lives.
+Levels are endless: clearing a wall builds a harder one (a taller wall - one
+more row every five levels - plus a denser one and a 10 % faster ball) and
+awards an extra life every five levels, so the game only ends when the player
+runs out of lives.
 """
 
 from __future__ import annotations
@@ -37,13 +38,17 @@ BRICK_PALETTE: tuple[Color, ...] = (
 
 # Bricks are 2x2 px blocks laid out edge to edge (no gap), so the wall reads as
 # a solid mass with holes - the classic breakout look. The ball stays 1 px and
-# the paddle is a 2-row bar.
+# the paddle is a 2-row bar with red-orange tips (:data:`PADDLE_EDGE_COLOR`).
 BRICK_SIZE = 2
 BRICK_PITCH = BRICK_SIZE
 
 PADDLE_HEIGHT = 2
 
 PADDLE_COLOR: Color = (255, 255, 255)
+# The paddle's two end columns are red-orange (the hue halfway between the
+# wall's red and orange rows), so the bar reads as a paddle with visible tips
+# instead of a plain white block.
+PADDLE_EDGE_COLOR: Color = (255, 64, 0)
 BALL_COLOR: Color = (255, 255, 255)
 
 HUD_SCORE_COLOR: Color = (0, 200, 0)
@@ -55,15 +60,16 @@ HUD_OVER_COLOR: Color = (255, 0, 0)
 # onto a fresh trajectory (keeps a single brick from becoming unreachable).
 _DRY_BOUNCE_LIMIT = 5
 
-# Endless levels: each cleared wall starts a new, harder one (a denser wall and
-# a faster ball) and rewards the player with an extra life every
+# Endless levels: each cleared wall starts a new, harder one (a taller, denser
+# wall and a faster ball) and rewards the player with an extra life every
 # _LEVELS_PER_LIFE levels, so a good run lasts. There is no "win" state - only
 # running out of lives ends the game.
 _DENSITY_STEP = 0.1  # wall density added every _LEVELS_PER_STEP levels
 _SPEED_GROWTH = 1.1  # ball speed factor applied every _LEVELS_PER_STEP levels
-_LEVELS_PER_STEP = 5  # density and speed both step up every this many levels
+_LEVELS_PER_STEP = 5  # rows, density and speed all step up every this many levels
 _MAX_SPEED = 3.0  # hard cap on the ball speed, whatever the level
 _LEVELS_PER_LIFE = 5  # one extra life every this many levels (5, 10, 15, ...)
+_START_ROWS = 3  # brick rows at level 1 (one more every _LEVELS_PER_STEP levels)
 
 
 def _clamp(value: int, low: int, high: int) -> int:
@@ -79,12 +85,13 @@ class Breakout:
 
     Geometry: the paddle is a 2-row bar sitting on the last row, the wall is
     built from 2x2 px bricks laid out edge to edge (:data:`BRICK_PITCH` grid)
-    and the ball is a single pixel.
+    and the ball is a single pixel. The paddle is white (:data:`PADDLE_COLOR`)
+    with a red-orange column at each end (:data:`PADDLE_EDGE_COLOR`).
 
     Levels are endless: clearing a wall calls :meth:`advance_level`, which
-    builds a denser and slightly faster wall, keeps score and lives, and awards
-    an extra life every :data:`_LEVELS_PER_LIFE` levels. There is no "win"
-    state - the game only ends when the player runs out of lives.
+    builds a taller, denser and slightly faster wall, keeps score and lives, and
+    awards an extra life every :data:`_LEVELS_PER_LIFE` levels. There is no
+    "win" state - the game only ends when the player runs out of lives.
 
     Parameters
     ----------
@@ -97,7 +104,7 @@ class Breakout:
         Optional RNG seed; when given the random wall is reproducible.
     density:
         Probability for a wall cell to contain a brick (0..1) at level 1
-        (``0.2`` by default); it gains :data:`_DENSITY_STEP` every
+        (``0.5`` by default); it gains :data:`_DENSITY_STEP` every
         :data:`_LEVELS_PER_STEP` levels, up to a full wall.
     speed:
         Pixels travelled per tick at level 1 (``>= 1``, ``1`` by default); it
@@ -105,8 +112,8 @@ class Breakout:
         :data:`_MAX_SPEED`. Fractional values are averaged over ticks (see
         :meth:`step`).
     level:
-        Starting level (default 1); higher levels start with a denser wall, a
-        faster ball and the extra lives earned up to that level.
+        Starting level (default 1); higher levels start with a taller and
+        denser wall, a faster ball and the extra lives earned up to that level.
     hud:
         When true, the top row is reserved for the on-panel HUD
         (score bar on the left, level then remaining lives on the right).
@@ -122,7 +129,7 @@ class Breakout:
         height: int,
         lives: int = 3,
         seed: Optional[int] = None,
-        density: float = 0.2,
+        density: float = 0.5,
         speed: float = 1.0,
         level: int = 1,
         hud: bool = True,
@@ -183,6 +190,16 @@ class Breakout:
         """
         steps = (self.level - 1) // _LEVELS_PER_STEP
         return min(_MAX_SPEED, self.speed * _SPEED_GROWTH**steps)
+
+    @property
+    def level_rows(self) -> int:
+        """Brick rows wanted at the current level (before the panel-size cap).
+
+        It starts at :data:`_START_ROWS` on level 1 and gains one row every
+        :data:`_LEVELS_PER_STEP` levels; :meth:`_build_wall` caps it at what the
+        panel can actually hold, so a small panel simply builds fewer rows.
+        """
+        return _START_ROWS + (self.level - 1) // _LEVELS_PER_STEP
 
     def _brick_at(self, x: int, y: int) -> Optional[tuple[int, int]]:
         """Return the origin of the brick covering ``(x, y)``, or ``None``.
@@ -393,15 +410,18 @@ class Breakout:
     def _build_wall(self) -> None:
         """Build the random brick wall for the current field size and level.
 
-        The cell fill probability is :attr:`level_density`, so the wall gets
-        denser as the level rises. The grid starts on a multiple of
+        The wall grows with the level: it holds :attr:`level_rows` rows (one
+        more every :data:`_LEVELS_PER_STEP` levels, capped at what the panel can
+        hold) and its cell fill probability is :attr:`level_density`, so it also
+        gets denser as the level rises. The grid starts on a multiple of
         :data:`BRICK_PITCH` (that is what makes :meth:`_brick_at` a plain
         modulo) and never comes closer than two rows above the paddle, so there
         is always room to play.
         """
         top = -(-self.hud_rows // BRICK_PITCH) * BRICK_PITCH
         usable = self.paddle_y - 2 - top
-        rows = max(1, min(self.height // (2 * BRICK_PITCH), usable // BRICK_PITCH))
+        fits = max(1, min(self.height // (2 * BRICK_PITCH), usable // BRICK_PITCH))
+        rows = max(1, min(self.level_rows, fits))
         cols = max(1, self.width // BRICK_PITCH)
         self.brick_rows = rows
         self.brick_cols = cols
@@ -449,6 +469,13 @@ class Breakout:
             ],
             fill=PADDLE_COLOR,
         )
+        # Red-orange tips: the first and last column of the bar, over its whole
+        # height (both rows), painted over the white bar drawn above.
+        for x in (self.paddle_x, self.paddle_x + self.paddle_width - 1):
+            draw.rectangle(
+                [x, self.paddle_y, x, self.paddle_bottom],
+                fill=PADDLE_EDGE_COLOR,
+            )
         if 0 <= self.ball_x < self.width and 0 <= self.ball_y < self.height:
             draw.point((self.ball_x, self.ball_y), fill=BALL_COLOR)
         if self.hud_rows:
@@ -483,7 +510,7 @@ def run_breakout(
     brightness: Optional[int] = None,
     fps: float = 15.0,
     seed: Optional[int] = None,
-    density: float = 0.2,
+    density: float = 0.5,
     lives: int = 3,
     speed: float = 1.0,
     level: int = 1,
@@ -496,9 +523,9 @@ def run_breakout(
     window is opened only to capture the keyboard, which gives a smooth,
     continuously moving paddle.
 
-    Levels are endless: clearing a wall builds a denser and faster one and
-    rewards the player with an extra life every five levels, so the run only
-    ends when the player runs out of lives.
+    Levels are endless: clearing a wall builds a taller, denser and faster one
+    and rewards the player with an extra life every five levels, so the run
+    only ends when the player runs out of lives.
 
     Args:
         address: Bluetooth MAC address of the panel.
@@ -506,13 +533,13 @@ def run_breakout(
         fps: Target game/send rate (frames per second).
         seed: Optional RNG seed for a reproducible wall.
         density: Probability for a wall cell to contain a brick (0..1) at level 1
-            (0.2 by default); it gains 0.1 every five levels, up to a full wall.
+            (0.5 by default); it gains 0.1 every five levels, up to a full wall.
         lives: Number of balls available at level 1 (higher starting levels add
             the extra lives they would have earned).
         speed: Pixels travelled per tick at level 1 (1 by default); it grows by
             10 % every five levels, capped at 3.
-        level: Starting level (default 1); it also grants the extra lives earned
-            up to that level.
+        level: Starting level (default 1); the wall already has the extra rows
+            (one every five levels) and the extra lives earned up to it.
         hud: Draw the on-panel HUD (score bar + level + lives).
         panel: Optional already connected panel to use instead of connecting;
             a borrowed panel is left open (see :func:`pixelled_lib.library.panel.use_panel`).
