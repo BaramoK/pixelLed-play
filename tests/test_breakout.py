@@ -35,6 +35,7 @@ from pixelled_play.games.breakout import (
     _LEVELS_PER_LIFE,
     _LEVELS_PER_STEP,
     _MAX_BALLS,
+    _MAX_LEVEL_LIVES,
     _MAX_SPEED,
     _START_ROWS,
 )
@@ -471,10 +472,45 @@ def test_starting_level_can_be_chosen():
 
 def test_starting_level_comes_with_the_lives_it_would_have_earned():
     """``--level 10`` must start with the extra lives levels 5 and 10 award."""
-    for level, expected in ((1, 3), (4, 3), (5, 4), (9, 4), (10, 5), (15, 6)):
+    for level, expected in ((1, 3), (4, 3), (5, 4), (9, 4), (10, 5), (15, 5)):
         game = Breakout(32, 32, seed=1, lives=3, level=level)
         assert game.lives == expected
-        assert game.lives == 3 + level // _LEVELS_PER_LIFE
+        # the reward tops the player back up to _MAX_LEVEL_LIVES, never past it
+        assert game.lives == min(_MAX_LEVEL_LIVES, 3 + level // _LEVELS_PER_LIFE)
+
+
+def test_level_reward_stops_at_the_lives_cap():
+    """Once at the cap, clearing further milestones never adds a life."""
+    game = Breakout(32, 32, seed=1, lives=_MAX_LEVEL_LIVES)
+    for _ in range(3 * _LEVELS_PER_LIFE):  # cross levels 5, 10 and 15
+        game.launch()
+        game.clear_bricks()
+        game.ball_x, game.ball_y = 16, 20
+        game.vx, game.vy = 1, 1
+        game.step()
+    assert game.level == 1 + 3 * _LEVELS_PER_LIFE
+    assert game.lives == _MAX_LEVEL_LIVES  # already at the cap: no reward
+
+
+def test_level_reward_tops_up_towards_the_lives_cap():
+    """A player below the cap is topped up to it, then stops earning lives."""
+    game = Breakout(32, 32, seed=1, lives=_MAX_LEVEL_LIVES - 1)
+    for _ in range(_LEVELS_PER_LIFE - 1):  # level 1 -> level 5
+        game.launch()
+        game.clear_bricks()
+        game.ball_x, game.ball_y = 16, 20
+        game.vx, game.vy = 1, 1
+        game.step()
+    assert game.level == _LEVELS_PER_LIFE
+    assert game.lives == _MAX_LEVEL_LIVES  # topped up: 4 -> 5
+    for _ in range(_LEVELS_PER_LIFE):  # level 5 -> level 10
+        game.launch()
+        game.clear_bricks()
+        game.ball_x, game.ball_y = 16, 20
+        game.vx, game.vy = 1, 1
+        game.step()
+    assert game.level == 2 * _LEVELS_PER_LIFE
+    assert game.lives == _MAX_LEVEL_LIVES  # already at the cap: no reward
 
 
 def test_density_starts_at_the_default_and_gains_a_tenth_every_five_levels():

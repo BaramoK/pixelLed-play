@@ -9,7 +9,9 @@ Games rendered entirely on **iPixel Color** LED matrix panels, built on
   wall is built from 2x2 px bricks packed edge to edge, the paddle is a 2 px bar
   with red-orange tips and the ball is a single pixel. Levels are endless:
   clearing a wall builds a taller, denser, slightly faster one and awards an
-  extra life every five levels. Destroyed bricks can drop a pickup the paddle
+  extra life every five levels, but only while the player has fewer than five
+  lives (so the reward tops the player back up instead of growing forever).
+  Destroyed bricks can drop a pickup the paddle
   catches: an extra life, a second ball, a wider bar — or, for the red malus, a
   narrower one.
 - **Tetris** — a small Tetris demo, also played entirely on the panel: a 10
@@ -106,10 +108,12 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   (3 rows at level 1, +1 row every five levels, up to what the panel holds) that
   is also denser (density +0.1 every five levels, up to a full wall) and speeds
   the ball up (x1.1, i.e. +10 %, every five levels, capped at 3 px/tick), and
-  rewards the player with **one extra life every five levels**; the score keeps
-  accumulating, so only running out of lives ends the game. `--level` starts at
-  a higher level and grants the extra rows and lives it would have earned on the
-  way (`--lives` is the count at level 1). Destroyed bricks can also drop a
+  rewards the player with **one extra life every five levels, but only while
+  below five lives** (the reward tops the player back up towards that cap, it
+  never pushes past it); the score keeps accumulating, so only running out of
+  lives ends the game. `--level` starts at a higher level and grants the extra
+  rows and lives it would have earned on the way, capped the same way (`--lives`
+  is the count at level 1). Destroyed bricks can also drop a
   **pickup** (`--bonus`, 15 % of the time by default): half a brick (2x1 px) falls
   at **half the ball's speed** — a bit slower, so there is time to fetch it, and
   moved one pixel at a time, so even the 3 px/tick cap cannot make it tunnel

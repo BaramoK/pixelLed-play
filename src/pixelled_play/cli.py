@@ -52,7 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--level",
         type=int,
         default=1,
-        help="Starting level (default 1); also grants the lives earned so far.",
+        help="Starting level (default 1); also grants the lives earned so far "
+        "(capped at 5).",
     )
     p_breakout.add_argument(
         "--speed",
@@ -65,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--lives",
         type=int,
         default=3,
-        help="Number of balls at level 1 (default 3).",
+        help="Number of balls at level 1 (default 3); level rewards cap at 5.",
     )
     p_breakout.add_argument(
         "--density",

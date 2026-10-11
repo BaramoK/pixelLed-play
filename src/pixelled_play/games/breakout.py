@@ -9,8 +9,9 @@ tkinter window is used only to capture keyboard input.
 
 Levels are endless: clearing a wall builds a harder one (a taller wall - one
 more row every five levels - plus a denser one and a 10 % faster ball) and
-awards an extra life every five levels, so the game only ends when the player
-runs out of lives.
+awards an extra life every five levels - but only while the player has fewer
+than five lives, so the reward tops the player back up instead of growing
+without bound, and the game only ends when the player runs out of lives.
 
 Destroyed bricks can also drop a bonus: half a brick (2 px wide, 1 px tall)
 falls at half the ball's speed - slower, so the player has time to fetch it -
@@ -92,13 +93,15 @@ _DRY_BOUNCE_LIMIT = 5
 
 # Endless levels: each cleared wall starts a new, harder one (a taller, denser
 # wall and a faster ball) and rewards the player with an extra life every
-# _LEVELS_PER_LIFE levels, so a good run lasts. There is no "win" state - only
-# running out of lives ends the game.
+# _LEVELS_PER_LIFE levels - but only while below _MAX_LEVEL_LIVES, so the
+# reward tops the player back up instead of growing without bound. There is no
+# "win" state - only running out of lives ends the game.
 _DENSITY_STEP = 0.1  # wall density added every _LEVELS_PER_STEP levels
 _SPEED_GROWTH = 1.1  # ball speed factor applied every _LEVELS_PER_STEP levels
 _LEVELS_PER_STEP = 5  # rows, density and speed all step up every this many levels
 _MAX_SPEED = 3.0  # hard cap on the ball speed, whatever the level
 _LEVELS_PER_LIFE = 5  # one extra life every this many levels (5, 10, 15, ...)
+_MAX_LEVEL_LIVES = 5  # the level-up reward never pushes lives past this
 _START_ROWS = 3  # brick rows at level 1 (one more every _LEVELS_PER_STEP levels)
 _BONUS_DROP_CHANCE = 0.15  # default probability for a brick to drop a pickup
 _BONUS_SPEED_FACTOR = 0.5  # pickups fall at half the ball speed (px/tick)
@@ -158,8 +161,10 @@ class Breakout:
 
     Levels are endless: clearing a wall calls :meth:`advance_level`, which
     builds a taller, denser and slightly faster wall, keeps score and lives, and
-    awards an extra life every :data:`_LEVELS_PER_LIFE` levels. There is no
-    "win" state - the game only ends when the player runs out of lives.
+    awards an extra life every :data:`_LEVELS_PER_LIFE` levels - but only while
+    the player sits below :data:`_MAX_LEVEL_LIVES` lives, so the reward tops the
+    player back up instead of growing without bound. There is no "win" state -
+    the game only ends when the player runs out of lives.
 
     Destroyed bricks can drop a pickup (one brick in ``bonus_chance``): half a
     brick that falls at half the ball's speed and, caught by the paddle, either
@@ -367,8 +372,13 @@ class Breakout:
         self._rng = random.Random(seed)
         self.level = self.initial_level
         # Starting at level N must feel like a run that just reached N, so the
-        # extra lives awarded at levels 5, 10, 15, ... are already in the bag.
-        self.lives = self.initial_lives + self.level // _LEVELS_PER_LIFE
+        # extra lives awarded at levels 5, 10, 15, ... are already in the bag -
+        # but that reward stops once the player sits at _MAX_LEVEL_LIVES, and an
+        # explicit starting count above it (``--lives``) is never reduced.
+        self.lives = self.initial_lives + min(
+            self.level // _LEVELS_PER_LIFE,
+            max(0, _MAX_LEVEL_LIVES - self.initial_lives),
+        )
         self.score = 0
         self.level_score = 0
         self.state = self.READY
@@ -635,15 +645,17 @@ class Breakout:
         """Start the next (harder) level once the current wall is cleared.
 
         Score and lives carry over, and reaching a multiple of
-        :data:`_LEVELS_PER_LIFE` rewards the player with an extra life; only the
-        ball is put back on the (re-centred) paddle, ready to be launched again,
-        and the falling pickups are cleared. The paddle keeps the width it had
-        (only :meth:`reset` restores the base width). Levels are endless, so this
-        never ends the game - running out of lives does.
+        :data:`_LEVELS_PER_LIFE` rewards the player with an extra life - but only
+        while they sit below :data:`_MAX_LEVEL_LIVES`, so the reward tops the
+        player back up instead of growing without bound. Only the ball is put
+        back on the (re-centred) paddle, ready to be launched again, and the
+        falling pickups are cleared. The paddle keeps the width it had (only
+        :meth:`reset` restores the base width). Levels are endless, so this never
+        ends the game - running out of lives does.
         """
         self.level += 1
         self.level_score = 0
-        if self.level % _LEVELS_PER_LIFE == 0:
+        if self.level % _LEVELS_PER_LIFE == 0 and self.lives < _MAX_LEVEL_LIVES:
             self.lives += 1
         self.paddle_x = (self.width - self.paddle_width) // 2
         self.paddle_vx = 0
@@ -785,8 +797,9 @@ def run_breakout(
     continuously moving paddle.
 
     Levels are endless: clearing a wall builds a taller, denser and faster one
-    and rewards the player with an extra life every five levels, so the run
-    only ends when the player runs out of lives.
+    and rewards the player with an extra life every five levels - but only while
+    below five lives, so the reward tops the player back up instead of growing
+    without bound - and the run only ends when the player runs out of lives.
 
     Destroyed bricks can drop a pickup the paddle may catch: an extra life, a
     second ball, a wider bar - or, for the red malus, a narrower one.
