@@ -9,7 +9,9 @@ Games rendered entirely on **iPixel Color** LED matrix panels, built on
   wall is built from 2x2 px bricks packed edge to edge, the paddle is a 2 px bar
   with red-orange tips and the ball is a single pixel. Levels are endless:
   clearing a wall builds a taller, denser, slightly faster one and awards an
-  extra life every five levels.
+  extra life every five levels. Destroyed bricks can drop a pickup the paddle
+  catches: an extra life, a second ball, a wider bar — or, for the red malus, a
+  narrower one.
 - **Tetris** — a small Tetris demo, also played entirely on the panel: a 10
   block wide field of fixed 2x2 px blocks with a 12 px HUD band on its right
   (next piece preview, score bar, level bar). 7-bag randomizer, wall kicks,
@@ -107,7 +109,17 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   rewards the player with **one extra life every five levels**; the score keeps
   accumulating, so only running out of lives ends the game. `--level` starts at
   a higher level and grants the extra rows and lives it would have earned on the
-  way (`--lives` is the count at level 1).
+  way (`--lives` is the count at level 1). Destroyed bricks can also drop a
+  **pickup** (`--bonus`, 15 % of the time by default): half a brick (2x1 px) falls
+  at the ball's speed — one pixel per step, exactly like the ball, so even the
+  3 px/tick cap cannot make it tunnel through the bar — and, caught by the
+  paddle, either adds a **life** (green), sends a **second ball** (blue, up to 4
+  in play; a life is only spent when the *last* ball drops), **widens** the bar by
+  one pixel per side (white, up to 12 px) or — the red malus — **narrows** it by
+  one pixel per side (down to 8 px). Those bounds never shrink a bar the panel
+  already makes wider (a 64 px panel gets a 16 px bar, which only a malus can
+  narrow). A missed pickup simply falls off the field, and `--bonus 0` turns
+  pickups off.
 - `pixelled-play tetris` also draws everything on the panel; its (minimal)
   window only captures the keyboard: arrows/`A`-`D` move the piece, up/`W`/`X`
   rotate clockwise, `Z` rotates counter-clockwise, down/`S` soft drops, space

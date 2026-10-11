@@ -78,6 +78,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--seed", type=int, default=None, help="RNG seed for a reproducible wall."
     )
     p_breakout.add_argument(
+        "--bonus",
+        dest="bonus_chance",
+        type=float,
+        default=0.15,
+        help="Probability for a destroyed brick to drop a pickup (default 0.15); "
+        "0 disables them.",
+    )
+    p_breakout.add_argument(
         "--no-hud",
         dest="hud",
         action="store_false",
@@ -140,6 +148,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             speed=args.speed,
             level=args.level,
             hud=args.hud,
+            bonus_chance=args.bonus_chance,
         )
         return 0
 
