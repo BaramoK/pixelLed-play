@@ -23,6 +23,7 @@ from pixelled_play.games.breakout import (
     _LEVELS_PER_LIFE,
     _LEVELS_PER_STEP,
     _MAX_SPEED,
+    _START_ROWS,
 )
 from pixelled_lib.library.panel import Panel
 
@@ -402,15 +403,15 @@ def test_starting_level_comes_with_the_lives_it_would_have_earned():
         assert game.lives == 3 + level // _LEVELS_PER_LIFE
 
 
-def test_density_starts_at_a_fifth_and_gains_a_tenth_every_five_levels():
+def test_density_starts_at_the_default_and_gains_a_tenth_every_five_levels():
     def density(level, **kwargs):
         return Breakout(32, 32, seed=1, level=level, **kwargs).level_density
 
-    assert density(1) == pytest.approx(0.2)  # the base density is the level 1 one
-    assert density(_LEVELS_PER_STEP) == pytest.approx(0.2)  # nothing before level 6
-    assert density(_LEVELS_PER_STEP + 1) == pytest.approx(0.3)
-    assert density(2 * _LEVELS_PER_STEP + 1) == pytest.approx(0.4)
-    assert density(41) == 1.0  # a full wall, capped
+    assert density(1) == pytest.approx(0.5)  # the base density is the level 1 one
+    assert density(_LEVELS_PER_STEP) == pytest.approx(0.5)  # nothing before level 6
+    assert density(_LEVELS_PER_STEP + 1) == pytest.approx(0.6)
+    assert density(2 * _LEVELS_PER_STEP + 1) == pytest.approx(0.7)
+    assert density(26) == 1.0  # a full wall, capped
     assert density(1000) == 1.0
     assert density(_LEVELS_PER_STEP + 1, density=0.5) == pytest.approx(0.6)
 
@@ -429,6 +430,26 @@ def test_speed_grows_by_a_tenth_every_five_levels_and_is_capped():
     assert speed(61) == _MAX_SPEED  # the cap kicks in around level 61
     assert speed(1000) == _MAX_SPEED
     assert speed(_LEVELS_PER_STEP + 1, speed=2.0) == pytest.approx(2.2)
+
+
+def test_wall_gains_a_row_every_five_levels_up_to_the_panel_height():
+    def rows(level):
+        return Breakout(32, 32, seed=1, level=level).brick_rows
+
+    assert rows(1) == _START_ROWS == 3
+    assert rows(_LEVELS_PER_STEP) == 3  # nothing before level 6
+    assert rows(_LEVELS_PER_STEP + 1) == 4
+    assert rows(2 * _LEVELS_PER_STEP + 1) == 5
+    assert rows(3 * _LEVELS_PER_STEP + 1) == 6
+    assert rows(4 * _LEVELS_PER_STEP + 1) == 7
+    assert rows(5 * _LEVELS_PER_STEP + 1) == 8  # a 32x32 panel fits eight rows
+    assert rows(1000) == 8  # never taller than the panel
+
+
+def test_wall_rows_are_capped_by_the_panel_size():
+    # A 16x16 panel only has room for four brick rows, whatever the level.
+    assert Breakout(16, 16, seed=1, level=1).brick_rows == _START_ROWS
+    assert Breakout(16, 16, seed=1, level=1000).brick_rows == 4
 
 
 def test_fractional_speed_is_averaged_over_ticks():

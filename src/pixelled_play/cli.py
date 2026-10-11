@@ -70,9 +70,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_breakout.add_argument(
         "--density",
         type=float,
-        default=0.2,
+        default=0.5,
         help="Probability for a wall cell to hold a brick at level 1 (default "
-        "0.2); +0.1 every five levels.",
+        "0.5); +0.1 every five levels.",
     )
     p_breakout.add_argument(
         "--seed", type=int, default=None, help="RNG seed for a reproducible wall."
