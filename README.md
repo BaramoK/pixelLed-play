@@ -171,6 +171,12 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   (and back) from breaking the Tk interpreter.
 - Frame rate is limited by BLE throughput and the per-frame ACK; expect a few
   frames per second up to roughly 10-15 fps depending on panel size and content.
+- Quitting (`q`/Esc, the window close button, or the menu's `q`) blanks the
+  panel: the matrix keeps the last frame it received, so the connection is not
+  only closed cleanly but an all-black frame is pushed just before, which stops
+  the panel from staying frozen on the last game/menu image. A *brutal* kill
+  (closing the console window, `Ctrl+C` in some shells) runs no shutdown code,
+  so the panel would then keep that last image.
 
 ## Tests
 

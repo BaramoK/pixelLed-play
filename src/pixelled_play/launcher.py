@@ -12,6 +12,7 @@ from typing import Optional
 from pixelled_lib.library.menu import AUTO_DELAY_S, MenuGroup, MenuItem, run_menu
 from pixelled_lib.library.panel import Panel
 
+from .display import blank_panel
 from .games.breakout import run_breakout
 from .games.tetris import run_tetris
 
@@ -60,10 +61,16 @@ def run_launcher(
             mode; ``a`` still toggles auto-scrolling on).
     """
     with Panel(address, brightness=brightness) as panel:
-        run_menu(
-            panel,
-            build_games_groups(address, seed=seed),
-            fps=fps,
-            auto=auto,
-            title="pixelled play launcher",
-        )
+        try:
+            run_menu(
+                panel,
+                build_games_groups(address, seed=seed),
+                fps=fps,
+                auto=auto,
+                title="pixelled play launcher",
+            )
+        finally:
+            # The panel keeps the last frame it got, so clear it before the
+            # connection is closed - otherwise it stays frozen on the last
+            # menu frame (a clean disconnect alone does not blank it).
+            blank_panel(panel)

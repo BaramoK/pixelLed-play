@@ -29,6 +29,8 @@ from pixelled_lib.library.keys import KeyRepeater
 from pixelled_lib.library.panel import Panel, use_panel
 from pixelled_lib.library.sender import FrameSender
 
+from ..display import blank_panel
+
 __all__ = ["Tetris", "run_tetris"]
 
 Color = tuple[int, int, int]
@@ -619,6 +621,10 @@ def run_tetris(
             sender.stop()
             sender.join(timeout=1.0)
             window.close()
+            # The panel keeps the last frame it got, so clear it before the
+            # connection is closed - otherwise it stays frozen on the last
+            # game frame (a clean disconnect alone does not blank it).
+            blank_panel(panel)
 
         print(f"Sent {sender.sent} frames.")
 

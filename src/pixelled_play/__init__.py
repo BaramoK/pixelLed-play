@@ -6,6 +6,7 @@ engine). :mod:`pixelled_play.launcher` is the on-panel menu that starts them and
 :mod:`pixelled_play.cli` exposes everything on the command line.
 """
 
+from .display import blank_panel
 from .games.breakout import Breakout, run_breakout
 from .games.tetris import Tetris, run_tetris
 from .launcher import build_games_groups, run_launcher
@@ -15,6 +16,7 @@ __version__ = "0.1.0"
 __all__ = [
     "Breakout",
     "Tetris",
+    "blank_panel",
     "build_games_groups",
     "run_breakout",
     "run_launcher",
