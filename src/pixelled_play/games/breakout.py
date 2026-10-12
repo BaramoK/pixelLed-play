@@ -16,7 +16,11 @@ without bound, and the game only ends when the player runs out of lives.
 Destroyed bricks can also drop a bonus: half a brick (2 px wide, 1 px tall)
 falls at half the ball's speed - slower, so the player has time to fetch it -
 and, caught by the paddle, either grants an extra life, sends a second ball,
-widens the bar by one pixel per side or, for the red malus, narrows it.
+widens the bar by one pixel per side, narrows it (the red malus) or arms a
+homing missile that makes the ball chase the nearest brick on the way up and
+head back towards the paddle as it falls - the descent is guided back at the bar
+over its first few pixels and then left straight (the bar turns the bonus
+colour) - until the ball is lost or the level ends.
 """
 
 from __future__ import annotations
@@ -74,12 +78,20 @@ BONUS_LIFE = "life"
 BONUS_BALL = "ball"
 BONUS_GROW = "grow"
 BONUS_SHRINK = "shrink"
-BONUS_KINDS: tuple[str, ...] = (BONUS_LIFE, BONUS_BALL, BONUS_GROW, BONUS_SHRINK)
+BONUS_HOMING = "homing"
+BONUS_KINDS: tuple[str, ...] = (
+    BONUS_LIFE,
+    BONUS_BALL,
+    BONUS_GROW,
+    BONUS_SHRINK,
+    BONUS_HOMING,
+)
 BONUS_COLORS: dict[str, Color] = {
     BONUS_LIFE: (0, 255, 0),  # green: one extra life
     BONUS_BALL: (0, 128, 255),  # blue: one more ball
     BONUS_GROW: (255, 255, 255),  # white: one pixel wider on each side
     BONUS_SHRINK: (255, 0, 0),  # red: one pixel narrower on each side (malus)
+    BONUS_HOMING: (255, 0, 255),  # magenta: homes in on the nearest brick
 }
 
 HUD_SCORE_COLOR: Color = (0, 200, 0)
@@ -107,6 +119,14 @@ _BONUS_DROP_CHANCE = 0.15  # default probability for a brick to drop a pickup
 _BONUS_SPEED_FACTOR = 0.5  # pickups fall at half the ball speed (px/tick)
 _MAX_BALLS = 4  # hard cap on the number of balls in play
 
+# Homing missile: the fall of the ball is aimed back at the bar for this many
+# pixels after it turns around - the missile "swings it back" over the start of
+# the descent - and then the ball keeps the trajectory it was left with. The
+# guided start is what brings the ball home from a brick off to the side, while
+# stopping short of the paddle row is what keeps the missile from being a
+# magnet: a bar moved after those pixels is not chased.
+_HOMING_AIM_PIXELS = 8
+
 
 def _clamp(value: int, low: int, high: int) -> int:
     """Return ``value`` constrained to ``[low, high]``."""
@@ -120,15 +140,23 @@ class _Ball:
     :attr:`Breakout.ball_x` / :attr:`Breakout.ball_y` / :attr:`Breakout.vx` /
     :attr:`Breakout.vy` properties address the first ball, which is all a
     single-ball game ever has.
+
+    ``aim`` is the guided start of a fall under the homing missile: the number
+    of pixels left for which the descent keeps being aimed at the paddle
+    (:data:`_HOMING_AIM_PIXELS`, set when the ball turns around). It is 0 for a
+    plain ball, and back to 0 once the guided start is over.
     """
 
-    __slots__ = ("x", "y", "vx", "vy")
+    __slots__ = ("x", "y", "vx", "vy", "aim")
 
-    def __init__(self, x: int, y: int, vx: int = 0, vy: int = 0) -> None:
+    def __init__(
+        self, x: int, y: int, vx: int = 0, vy: int = 0, aim: int = 0
+    ) -> None:
         self.x = int(x)
         self.y = int(y)
         self.vx = int(vx)
         self.vy = int(vy)
+        self.aim = int(aim)
 
 
 class _Bonus:
@@ -169,7 +197,12 @@ class Breakout:
     Destroyed bricks can drop a pickup (one brick in ``bonus_chance``): half a
     brick that falls at half the ball's speed and, caught by the paddle, either
     grants an extra life, sends a second ball, widens the bar by one pixel per
-    side or - the red malus - narrows it.
+    side, narrows it (the red malus) or arms a homing missile: the ball then
+    chases the nearest brick on the way up - steering over to it until it is
+    hit - and its fall starts off aimed back at the paddle, over its first
+    pixels, before going straight; the player still has to catch it, and the bar
+    is drawn in the bonus colour. The homing lasts until the ball is lost or the
+    level ends.
 
     Parameters
     ----------
@@ -314,6 +347,16 @@ class Breakout:
         return self.paddle_y + self.paddle_height - 1
 
     @property
+    def paddle_color(self) -> Color:
+        """Colour of the paddle body: the homing colour while that bonus is on.
+
+        Only the white body changes; the red-orange tips stay
+        :data:`PADDLE_EDGE_COLOR` (see :meth:`render`), so the bar keeps reading
+        as a paddle while showing the active bonus.
+        """
+        return BONUS_COLORS[BONUS_HOMING] if self.homing else PADDLE_COLOR
+
+    @property
     def level_density(self) -> float:
         """Wall density at the current level (rises with the level, capped at 1).
 
@@ -357,6 +400,72 @@ class Breakout:
         origin = (x - x % BRICK_PITCH, y - y % BRICK_PITCH)
         return origin if origin in self.bricks else None
 
+    def _nearest_brick(self, x: int, y: int) -> Optional[tuple[int, int]]:
+        """Return the origin of the brick closest to ``(x, y)``, or ``None``.
+
+        Distance is measured between pixel centres, so the pick is the brick
+        whose middle is nearest the ball - what the homing missile locks on.
+        ``None`` means the wall is empty (the level is about to advance).
+        """
+        best: Optional[tuple[int, int]] = None
+        best_d2: Optional[float] = None
+        half = BRICK_SIZE / 2.0
+        for bx, by in self.bricks:
+            dx = bx + half - (x + 0.5)
+            dy = by + half - (y + 0.5)
+            d2 = dx * dx + dy * dy
+            if best_d2 is None or d2 < best_d2:
+                best, best_d2 = (bx, by), d2
+        return best
+
+    def _aim_at_nearest_brick(self, ball: _Ball) -> None:
+        """Steer ``ball`` towards the nearest brick (the homing missile effect).
+
+        The ball is climbing, so only the horizontal sign has to change: it is
+        set towards the brick's centre - or zeroed once the ball already sits
+        above the brick's column - giving a 45-degree or a straight-up
+        trajectory that seeks the wall. That half-brick dead zone is what makes
+        the missile actually hit: the ball centre and the brick centre are never
+        on the same pixel column, so a plain sign comparison would always pick a
+        45-degree hop, which overshoots the column from the bottom row and hits
+        a side wall instead. Called on every paddle bounce and again on every
+        pixel of the climb (:meth:`_unit_step`), so the ball slides over to the
+        brick's column and then rises straight into it, however far off it
+        started. A no-op when the wall is empty.
+        """
+        target = self._nearest_brick(ball.x, ball.y)
+        if target is None:
+            return
+        center_x = target[0] + BRICK_SIZE / 2.0
+        dx = center_x - (ball.x + 0.5)
+        ball.vx = 0 if abs(dx) <= BRICK_SIZE / 2.0 else (1 if dx > 0 else -1)
+        ball.vy = -1
+
+    def _aim_at_paddle(self, ball: _Ball) -> None:
+        """Aim the fall of a homing ``ball`` at the paddle (guided start).
+
+        The ball is falling, so only the horizontal sign has to change: it is
+        set towards the middle of the bar - or zeroed once the ball already
+        hangs over it - so the missile comes back towards the paddle instead of
+        dropping away on the far side. The dead zone is half the bar wide, which
+        is exactly the columns the ball can land on (the bar catches the ball
+        anywhere along its width), so a ball turned around over the paddle falls
+        straight back onto it.
+
+        Called on each pixel of the guided start, i.e. for the
+        :data:`_HOMING_AIM_PIXELS` pixels that follow the turn
+        (:meth:`_unit_step`), and never again during that fall: the ball then
+        keeps the trajectory it was left with, even if the paddle moves, so the
+        player still has to bring the bar under it.
+        """
+        center = self.paddle_x + self.paddle_width / 2.0
+        dx = center - (ball.x + 0.5)
+        if abs(dx) <= self.paddle_width / 2.0:
+            ball.vx = 0  # already over the bar: drop straight onto it
+        else:
+            ball.vx = 1 if dx > 0 else -1
+        ball.vy = 1
+
     # -- lifecycle --------------------------------------------------------
     def _ball_on_paddle(self) -> _Ball:
         """Return a fresh ball resting on the middle of the paddle."""
@@ -366,8 +475,8 @@ class Breakout:
         """Start a new game, rebuilding the (random) wall.
 
         The paddle is back to its base width (:attr:`paddle_grow` is zeroed, so
-        a pickup that resized it does not survive a replay) and no pickup is
-        left falling.
+        a pickup that resized it does not survive a replay), the homing bonus is
+        cleared and no pickup is left falling.
         """
         self._rng = random.Random(seed)
         self.level = self.initial_level
@@ -383,6 +492,7 @@ class Breakout:
         self.level_score = 0
         self.state = self.READY
         self.paddle_grow = 0
+        self.homing = False
         self.paddle_x = (self.width - self.paddle_width) // 2
         self.paddle_vx = 0
         self._dry_bounces = 0
@@ -460,9 +570,27 @@ class Breakout:
         ``ball`` defaults to the first ball in play, the only one a single-ball
         game has; each ball of a multi-ball game is moved on its own, so the
         extra ball simply travels independently.
+
+        A homing ball is steered here. Climbing, it chases the nearest brick:
+        that is what lets the missile reach a brick off to the side (it slides
+        over to the brick's column, then rises straight into it) and what keeps
+        a side wall from breaking the lock on the way. When it turns around, its
+        fall gets a *guided start*: the descent is aimed at the paddle for
+        :data:`_HOMING_AIM_PIXELS` pixels, so the ball swings back towards the
+        bar instead of dropping away on the far side, and then the trajectory is
+        left alone - the ball travels straight, so a bar moved after that is not
+        chased and the player still has to catch it.
         """
         if ball is None:
             ball = self.balls[0]
+        climbing = ball.vy < 0
+        if self.homing:
+            if climbing:
+                self._aim_at_nearest_brick(ball)
+            elif ball.aim > 0:
+                # Guided start of the fall (see below).
+                self._aim_at_paddle(ball)
+                ball.aim -= 1
         nx = ball.x + ball.vx
         ny = ball.y + ball.vy
 
@@ -501,6 +629,14 @@ class Breakout:
 
         ball.x, ball.y = nx, ny
 
+        # The homing missile just turned around (a brick or the ceiling sent it
+        # back down): arm the guided start of the fall. The next
+        # _HOMING_AIM_PIXELS pixels are aimed at the bar (see above), so the
+        # ball comes back towards it instead of dropping away on the far side;
+        # after that it keeps the trajectory it was left with.
+        if self.homing and climbing and ball.vy > 0:
+            ball.aim = _HOMING_AIM_PIXELS
+
         # Paddle: bounce and deflect according to the impact point.
         if (
             ball.vy > 0
@@ -531,6 +667,14 @@ class Breakout:
                 self._dry_bounces = 0
                 ball.x = _clamp(ball.x + self._rng.choice((-1, 1)), 0, self.width - 1)
                 ball.vx = self._rng.choice((-1, 1))
+
+            # Homing missile: aim the ball at the nearest brick instead of the
+            # plain reflection. This sets the direction it leaves with; the
+            # climb then re-aims it every pixel (see _unit_step), so it keeps
+            # seeking the brick and actually reaches it - and the fall it turns
+            # into gets a guided start aimed back at the bar (see _unit_step).
+            if self.homing:
+                self._aim_at_nearest_brick(ball)
 
         # Lost ball: a life is only spent when the last one is gone.
         if ball.y >= self.height:
@@ -578,7 +722,7 @@ class Breakout:
         )
 
     def _apply_bonus(self, kind: str) -> None:
-        """Apply a caught pickup: a life, a second ball or a resized bar."""
+        """Apply a caught pickup: a life, a ball, a resized bar or homing."""
         if kind == BONUS_LIFE:
             self.lives += 1
         elif kind == BONUS_BALL:
@@ -587,6 +731,8 @@ class Breakout:
             self._resize_paddle(1)
         elif kind == BONUS_SHRINK:
             self._resize_paddle(-1)
+        elif kind == BONUS_HOMING:
+            self.homing = True
 
     def _add_ball(self) -> None:
         """Send an extra ball from the paddle (up to :data:`_MAX_BALLS`).
@@ -628,13 +774,15 @@ class Breakout:
         """Consume a life, resetting to ``READY`` or ending the game.
 
         A fresh ball is put back on the paddle and the falling pickups are
-        cleared; the paddle keeps whatever width it had.
+        cleared; the paddle keeps whatever width it had, but the homing bonus is
+        lost with the ball.
         """
         self.lives -= 1
         self.balls = [self._ball_on_paddle()]
         self._move_carry = 0.0
         self._bonus_carry = 0.0
         self.bonuses = []
+        self.homing = False
         if self.lives <= 0:
             self.lives = 0
             self.state = self.GAME_OVER
@@ -650,8 +798,9 @@ class Breakout:
         player back up instead of growing without bound. Only the ball is put
         back on the (re-centred) paddle, ready to be launched again, and the
         falling pickups are cleared. The paddle keeps the width it had (only
-        :meth:`reset` restores the base width). Levels are endless, so this never
-        ends the game - running out of lives does.
+        :meth:`reset` restores the base width), but the homing bonus ends with
+        the level. Levels are endless, so this never ends the game - running out
+        of lives does.
         """
         self.level += 1
         self.level_score = 0
@@ -664,6 +813,7 @@ class Breakout:
         self._bonus_carry = 0.0
         self.balls = [self._ball_on_paddle()]
         self.bonuses = []
+        self.homing = False
         self.state = self.READY
         self._build_wall()
 
@@ -738,10 +888,10 @@ class Breakout:
                 self.paddle_x + self.paddle_width - 1,
                 self.paddle_bottom,
             ],
-            fill=PADDLE_COLOR,
+            fill=self.paddle_color,
         )
         # Red-orange tips: the first and last column of the bar, over its whole
-        # height (both rows), painted over the white bar drawn above.
+        # height (both rows), painted over the body drawn above.
         for x in (self.paddle_x, self.paddle_x + self.paddle_width - 1):
             draw.rectangle(
                 [x, self.paddle_y, x, self.paddle_bottom],
@@ -802,7 +952,11 @@ def run_breakout(
     without bound - and the run only ends when the player runs out of lives.
 
     Destroyed bricks can drop a pickup the paddle may catch: an extra life, a
-    second ball, a wider bar - or, for the red malus, a narrower one.
+    second ball, a wider bar, a narrower one (the red malus) or a homing missile
+    that makes the ball chase the nearest brick on the way up and head back
+    towards the paddle as it falls - the first few pixels of the descent are
+    guided at the bar, then the ball goes straight - until the ball is lost or
+    the level ends (the bar turns the bonus colour while it is on).
 
     Args:
         address: Bluetooth MAC address of the panel.

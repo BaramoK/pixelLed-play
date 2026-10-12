@@ -12,8 +12,8 @@ Games rendered entirely on **iPixel Color** LED matrix panels, built on
   extra life every five levels, but only while the player has fewer than five
   lives (so the reward tops the player back up instead of growing forever).
   Destroyed bricks can drop a pickup the paddle
-  catches: an extra life, a second ball, a wider bar — or, for the red malus, a
-  narrower one.
+  catches: an extra life, a second ball, a wider bar, a narrower one (the red
+  malus) or a homing missile that sends the ball chasing the nearest brick.
 - **Tetris** — a small Tetris demo, also played entirely on the panel: a 10
   block wide field of fixed 2x2 px blocks with a 12 px HUD band on its right
   (next piece preview, score bar, level bar). 7-bag randomizer, wall kicks,
@@ -122,8 +122,17 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   *last* ball drops), **widens** the bar by one pixel per side (white, up to
   12 px) or — the red malus — **narrows** it by one pixel per side (down to
   6 px). Those bounds never shrink a bar the panel already makes wider (a 64 px
-  panel gets a 16 px bar, which only a malus can narrow). A missed pickup simply
-  falls off the field, and `--bonus 0` turns pickups off. The four pickups are:
+  panel gets a 16 px bar, which only a malus can narrow). A pickup can also arm
+  a **homing missile** (magenta): the ball chases the nearest brick on the way
+  up, sliding over to that brick's column and then rising straight into it
+  (instead of hopping aside and hitting a side wall), and the fall it turns into
+  starts off guided back at the paddle, so the ball swings back towards the bar
+  instead of dropping away on the far side. That guidance only covers the start
+  of the descent — the first 8 px of the fall — and then the ball goes straight:
+  the bar is not chased over the rest of the fall, so the player still has to
+  catch the ball. The bar is painted the bonus colour, and the homing lasts
+  until the ball is lost or the level ends. A missed pickup simply falls off the
+  field, and `--bonus 0` turns pickups off. The five pickups are:
 
   | Bonus | Colour | Effect |
   |-------|--------|--------|
@@ -131,6 +140,7 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   | ball | blue (0,128,255) | a second ball (up to 4 in play) |
   | grow | white (255,255,255) | widens the bar by 1 px per side (up to 12 px) |
   | shrink | red (255,0,0) | malus: narrows the bar by 1 px per side (down to 6 px) |
+  | homing | magenta (255,0,255) | the ball chases the nearest brick on the way up, sliding over to that brick's column and rising straight into it, and the first 8 px of its fall are guided back at the paddle before the ball goes straight (so a bar moved after that guided start is not chased); until the ball is lost or the level ends, the bar takes this colour while it is on |
 - `pixelled-play tetris` also draws everything on the panel; its (minimal)
   window only captures the keyboard: arrows/`A`-`D` move the piece, up/`W`/`X`
   rotate clockwise, `Z` rotates counter-clockwise, down/`S` soft drops, space

@@ -16,6 +16,7 @@ from pixelled_play.games.breakout import (
     BONUS_COLORS,
     BONUS_GROW,
     BONUS_HEIGHT,
+    BONUS_HOMING,
     BONUS_KINDS,
     BONUS_LIFE,
     BONUS_SHRINK,
@@ -32,6 +33,7 @@ from pixelled_play.games.breakout import (
     PADDLE_MIN_WIDTH,
     Breakout,
     _Bonus,
+    _HOMING_AIM_PIXELS,
     _LEVELS_PER_LIFE,
     _LEVELS_PER_STEP,
     _MAX_BALLS,
@@ -1015,5 +1017,343 @@ def test_render_draws_pickups_with_their_kind_colour():
         # Half a brick: exactly one row tall, and nothing bleeds around it.
         assert img.getpixel((bonus.x, bonus.y + 1)) == (0, 0, 0)
         assert img.getpixel((bonus.x - 1, bonus.y)) == (0, 0, 0)
+
+
+def test_the_homing_pickup_is_a_droppable_bonus():
+    assert BONUS_HOMING in BONUS_KINDS
+    assert BONUS_COLORS[BONUS_HOMING] == (255, 0, 255)
+
+
+def test_nearest_brick_picks_the_closest_block():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.bricks = {(0, 4), (20, 4), (10, 8)}
+    game.brick_colors = {b: (255, 0, 0) for b in game.bricks}
+    assert game._nearest_brick(0, 20) == (0, 4)  # nearest the left edge
+    assert game._nearest_brick(30, 20) == (20, 4)  # nearest the right edge
+    assert game._nearest_brick(11, 16) == (10, 8)  # the low middle brick
+
+
+def test_nearest_brick_is_none_when_the_wall_is_empty():
+    game = Breakout(32, 32, seed=1)
+    game.clear_bricks()
+    assert game._nearest_brick(16, 20) is None
+    ball = game.balls[0]
+    ball.vx, ball.vy = 1, 1
+    game._aim_at_nearest_brick(ball)  # a no-op: nothing to home in on
+    assert (ball.vx, ball.vy) == (1, 1)
+
+
+def test_the_homing_missile_aims_at_the_nearest_brick():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.bricks = {(0, 4), (20, 4)}
+    game.brick_colors = {b: (255, 0, 0) for b in game.bricks}
+    ball = game.balls[0]
+    ball.x, ball.y, ball.vx, ball.vy = 16, 20, -1, 1
+    game._aim_at_nearest_brick(ball)
+    assert ball.vy == -1  # sent back up...
+    assert ball.vx == 1  # ...towards the nearer brick on the right
+
+
+def test_the_homing_missile_goes_straight_up_over_the_target_column():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.bricks = {(20, 4)}  # its centre sits on the ball's own pixel column
+    game.brick_colors = {(20, 4): (255, 0, 0)}
+    ball = game.balls[0]
+    ball.x, ball.y, ball.vx, ball.vy = 20, 20, -1, 1
+    game._aim_at_nearest_brick(ball)
+    assert ball.vy == -1  # sent back up...
+    assert ball.vx == 0  # ...straight up: no sideways hop that would miss
+
+
+def test_catching_a_homing_pickup_arms_the_missile():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    assert game.homing is False
+    _catch_pickup(game, BONUS_HOMING)
+    assert game.homing is True
+    assert game.bonuses == []  # a caught pickup is consumed
+
+
+def test_the_homing_bonus_aims_the_ball_on_a_paddle_bounce():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.bricks = {(0, 4)}  # a single brick on the far left
+    game.brick_colors = {(0, 4): (255, 0, 0)}
+    game.homing = True
+    # Drop the ball onto the right half of the paddle, heading down-right.
+    game.ball_x = game.paddle_x + game.paddle_width - 2
+    game.ball_y = game.paddle_y - 1
+    game.vx, game.vy = 1, 1
+    game.step()
+    assert game.vy == -1  # bounced up...
+    assert game.vx == -1  # ...and aimed at the brick, not deflected right
+
+
+def test_the_homing_missile_re_aims_on_every_paddle_bounce():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.homing = True
+    game.bricks = {(0, 6)}  # a single brick on the far left
+    game.brick_colors = {(0, 6): (255, 0, 0)}
+    # Bounce on the right half of the bar: a plain bounce would send the ball
+    # further right, the missile must swing it back left instead.
+    game.ball_x = game.paddle_x + game.paddle_width - 2
+    game.ball_y = game.paddle_y - 1
+    game.vx, game.vy = 1, 1
+    game.step()
+    assert (game.vx, game.vy) == (-1, -1)
+    assert game.homing is True  # the bonus is still on...
+
+    # ...and the wall now holds a brick on the far right (the missile just
+    # cleared the left one): the very next bounce must re-aim, not repeat the
+    # first decision.
+    game.bricks = {(30, 6)}
+    game.brick_colors = {(30, 6): (255, 0, 0)}
+    game.ball_x = game.paddle_x + 1  # left half: a plain bounce goes left
+    game.ball_y = game.paddle_y - 1
+    game.vx, game.vy = -1, 1
+    game.step()
+    assert (game.vx, game.vy) == (1, -1)
+
+
+def test_the_homing_missile_slides_over_to_the_brick_it_locked_on():
+    """A 45-degree hop cannot reach a brick 19 px off: the missile slides."""
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.bricks = {(0, 6), (0, 2)}  # far left, the lower one being the nearest
+    game.brick_colors = {b: (255, 0, 0) for b in game.bricks}
+    game.homing = True
+    # Bounce on the right half of the bar: the missile locks on to the brick 19
+    # px to the left and has to level out over its column to reach it, where a
+    # single 45-degree hop would run into the left wall and slide back right.
+    game.ball_x = game.paddle_x + game.paddle_width - 2
+    game.ball_y = game.paddle_y - 1
+    game.vx, game.vy = 1, 1
+    game.step()
+    assert (game.vx, game.vy) == (-1, -1)  # aimed at the far-left brick...
+    levelled = False
+    for _ in range(120):
+        game.step()
+        if (0, 6) not in game.bricks:
+            break
+        if game.vy == -1 and game.vx == 0:
+            levelled = True  # over the brick's column, climbing straight at it
+    assert levelled  # the missile slid over instead of hopping aside...
+    assert (0, 6) not in game.bricks  # ...and the climb reached the brick
+    assert game.level == 1  # the wall was not cleared: only that brick went
+
+
+def test_the_homing_missile_cannot_wedge_the_game():
+    """A homing ball must still clear the wall instead of orbiting forever.
+
+    Aiming at the nearest brick used to override the anti-stall nudge, so a
+    homing ball could stay in a 45-degree orbit with a few bricks left and the
+    level would never end. The missile now steers all the way into the brick,
+    so a tracking paddle clears the wall with the bonus still on.
+    """
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    first_wall = game.total_bricks
+    game.launch()
+    game.homing = True
+    ticks = 0
+    while (
+        game.level == 1
+        and game.state != Breakout.GAME_OVER
+        and ticks < 60000
+    ):
+        target = game.ball_x - game.paddle_width // 2
+        if game.paddle_x < target:
+            game.move_paddle(1)
+        elif game.paddle_x > target:
+            game.move_paddle(-1)
+        else:
+            game.move_paddle(0)
+        if game.state == Breakout.READY:
+            game.launch()
+        game.step()
+        ticks += 1
+    assert game.level == 2
+    assert game.score == first_wall
+    assert game.lives == 3  # the bonus survived the whole wall
+
+
+def test_the_homing_missile_guides_the_start_of_its_fall():
+    """The missile swings the ball back towards the bar as the fall starts.
+
+    The descent is aimed at the paddle for its first :data:`_HOMING_AIM_PIXELS`
+    pixels, so the ball comes back towards the bar instead of dropping away on
+    the far side.
+    """
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.homing = True
+    # The far brick keeps the level alive once the other one is broken.
+    game.bricks = {(30, 6), (0, 4)}
+    game.brick_colors = {b: (255, 0, 0) for b in game.bricks}
+    # Climbing the far right column: the brick there turns the ball around 14 px
+    # to the right of the bar, so the fall has to be aimed back at the paddle.
+    game.ball_x, game.ball_y = 30, 10
+    game.vx, game.vy = 0, -1
+    for _ in range(6):
+        game.step()
+        if game.vy == 1:
+            break
+    assert game.vy == 1  # the brick turned the ball around...
+    assert game.lives == 3
+
+    game.step()  # ...and the guided start heads back towards the bar
+    assert game.vx == -1
+    assert (game.ball_x, game.ball_y) == (29, 9)
+
+    for _ in range(_HOMING_AIM_PIXELS - 1):
+        game.step()
+    assert game.ball_x == 30 - _HOMING_AIM_PIXELS  # the whole guided start
+
+
+def test_the_homing_missile_follows_the_bar_during_the_guided_start():
+    """While the guided start lasts, the fall keeps being aimed at the bar.
+
+    That is what brings the ball home from a brick off to the side: even a bar
+    the player moves mid-flight is swung after, for those few pixels.
+    """
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.homing = True
+    game.bricks = {(8, 6), (30, 4)}  # the far brick keeps the level alive
+    game.brick_colors = {b: (255, 0, 0) for b in game.bricks}
+    game.ball_x, game.ball_y = 10, 10
+    game.vx, game.vy = 0, -1
+    for _ in range(6):
+        game.step()
+        if game.vy == 1:
+            break
+    assert game.vy == 1  # the brick turned the ball around...
+    game.step()
+    assert game.vx == 1  # ...and its fall is aimed at the bar on the right
+
+    game.move_paddle(-game.width)  # the player runs to the far left instead
+    game.step()
+    assert game.vx == -1  # the missile swings the ball back towards the bar
+
+
+def test_the_homing_missile_lets_the_ball_go_straight_after_the_guided_start():
+    """Once the guided start is over, the ball keeps its trajectory.
+
+    The missile is not a magnet: it only swings the start of the fall, so a bar
+    that moves after those pixels is not chased - the player still has to catch
+    the ball.
+    """
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.homing = True
+    game.bricks = {(30, 6), (0, 4)}  # the far brick keeps the level alive
+    game.brick_colors = {b: (255, 0, 0) for b in game.bricks}
+    game.ball_x, game.ball_y = 30, 10
+    game.vx, game.vy = 0, -1
+    for _ in range(6):
+        game.step()
+        if game.vy == 1:
+            break
+    for _ in range(_HOMING_AIM_PIXELS):  # the whole guided start
+        game.step()
+    assert game.ball_x == 30 - _HOMING_AIM_PIXELS
+
+    # The bar runs away to the far right: the ball keeps going left, straight.
+    game.move_paddle(game.width)
+    for _ in range(6):
+        game.step()
+        assert game.vx == -1
+    assert game.ball_x == 30 - _HOMING_AIM_PIXELS - 6  # it did travel that way
+
+
+def test_the_homing_missile_lands_back_on_a_bar_under_it():
+    """A ball turned around above the bar falls straight back onto it.
+
+    The bar catches the ball anywhere along its width, so a turn over the
+    paddle needs no sideways hop: the guided start leaves the fall vertical and
+    the ball comes home without spending a life.
+    """
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    game.homing = True
+    game.bricks = {(16, 6), (0, 4)}  # the far brick keeps the level alive
+    game.brick_colors = {b: (255, 0, 0) for b in game.bricks}
+    # Climbing the middle of the bar: the turn happens right above the paddle.
+    game.ball_x, game.ball_y = 16, 10
+    game.vx, game.vy = 0, -1
+    for _ in range(6):
+        game.step()
+        if game.vy == 1:
+            break
+    assert game.vx == 0  # no sideways hop: the bar is right below
+
+    for _ in range(40):
+        game.step()
+        if game.vy == -1:
+            break
+    assert game.vy == -1  # the ball bounced off the bar...
+    assert game.paddle_x <= game.ball_x < game.paddle_x + game.paddle_width
+    assert game.lives == 3  # ...instead of dropping beside it
+
+
+def test_the_homing_bonus_sends_the_ball_into_a_brick_that_is_dead_ahead():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    # A brick straight above the bar (the case that used to be missed) plus a
+    # far one, so clearing it does not end the level and rebuild the wall.
+    game.bricks = {(16, 6), (0, 4)}
+    game.brick_colors = {b: (255, 0, 0) for b in game.bricks}
+    game.homing = True
+    # Drop the ball onto the middle of the paddle, heading straight down.
+    game.ball_x = game.paddle_x + game.paddle_width // 2
+    game.ball_y = game.paddle_y - 1
+    game.vx, game.vy = 0, 1
+    for _ in range(40):  # bounce off the bar, then rise into the brick
+        game.step()
+        if (16, 6) not in game.bricks:
+            break
+    assert (16, 6) not in game.bricks  # the homing ball reached the brick
+    assert game.lives == 3  # and the ball never left the field on the way
+
+
+def test_the_homing_bonus_lasts_until_the_ball_is_lost():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    _catch_pickup(game, BONUS_HOMING)
+    assert game.homing is True
+    game.ball_x, game.ball_y = 1, game.height - 1  # drop it, off the bar
+    game.vx, game.vy = 1, 1
+    game.step()
+    assert game.state == Breakout.READY  # a life was spent...
+    assert game.homing is False  # ...and the missile is lost with the ball
+
+
+def test_the_homing_bonus_ends_with_the_level():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    game.launch()
+    _catch_pickup(game, BONUS_HOMING)
+    assert game.homing is True
+    game.clear_bricks()
+    game.ball_x, game.ball_y = 16, 20
+    game.vx, game.vy = 1, 1
+    game.step()
+    assert game.level == 2
+    assert game.homing is False
+
+
+def test_render_paints_the_paddle_body_with_the_homing_colour():
+    game = Breakout(32, 32, seed=1, bonus_chance=0.0)
+    body_x = game.paddle_x + 1  # inside the body, between the two tips
+    assert game.render().getpixel((body_x, game.paddle_y)) == PADDLE_COLOR
+    game.homing = True
+    img = game.render()
+    assert img.getpixel((body_x, game.paddle_y)) == BONUS_COLORS[BONUS_HOMING]
+    # The red-orange tips keep their colour whatever the body does.
+    assert img.getpixel((game.paddle_x, game.paddle_y)) == PADDLE_EDGE_COLOR
+    assert (
+        img.getpixel((game.paddle_x + game.paddle_width - 1, game.paddle_y))
+        == PADDLE_EDGE_COLOR
+    )
+
 
 
