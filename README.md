@@ -123,7 +123,14 @@ with Panel("30:E1:AF:BD:5F:D0", brightness=60) as panel:
   12 px) or — the red malus — **narrows** it by one pixel per side (down to
   6 px). Those bounds never shrink a bar the panel already makes wider (a 64 px
   panel gets a 16 px bar, which only a malus can narrow). A missed pickup simply
-  falls off the field, and `--bonus 0` turns pickups off.
+  falls off the field, and `--bonus 0` turns pickups off. The four pickups are:
+
+  | Bonus | Colour | Effect |
+  |-------|--------|--------|
+  | life | green (0,255,0) | +1 life |
+  | ball | blue (0,128,255) | a second ball (up to 4 in play) |
+  | grow | white (255,255,255) | widens the bar by 1 px per side (up to 12 px) |
+  | shrink | red (255,0,0) | malus: narrows the bar by 1 px per side (down to 6 px) |
 - `pixelled-play tetris` also draws everything on the panel; its (minimal)
   window only captures the keyboard: arrows/`A`-`D` move the piece, up/`W`/`X`
   rotate clockwise, `Z` rotates counter-clockwise, down/`S` soft drops, space
